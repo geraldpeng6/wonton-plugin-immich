@@ -2,7 +2,7 @@
 # 缩略图、转码、数据库等派生数据放插件自己的数据目录。
 #
 # 首次安装时 bootstrap 在空库里按注入的用户名建管理员；用户名就是 OIDC 的 sub，装上以后不变，每次启动按它认账号，
-# 只更新能变的邮箱。主人邮箱被别的账号占用时报错。
+# 只更新能变的邮箱。用户邮箱被别的账号占用时报错。
 #
 # 设置界面：OAuth 等设置由 IMMICH_CONFIG_FILE 指向的配置文件固定，Immich 管理界面因此整体只读（上游行为）；
 # 要改这些设置得改这里的配置节。
@@ -10,7 +10,7 @@ services:
   server:
     # 上游官方镜像，按 v3.3.5 官方 compose 的版本组合固定（license: AGPL-3.0-only）。
     image: &server ghcr.io/immich-app/immich-server:v3.3.5@sha256:485d546a2e31d6a8b4db8423fcba5c109de8c218d93410af115fd1ccfc4352a6
-    # 以主人身份运行：共享文件夹里写下的文件归主人，数据目录也按 PUID:PGID 交给它。
+    # 以用户身份运行：共享文件夹里写下的文件归用户，数据目录也按 PUID:PGID 交给它。
     user: "${PUID}:${PGID}"
     environment:
       IMMICH_CONFIG_FILE: /usr/src/app/wonton-config.json
@@ -77,7 +77,7 @@ services:
   # 一次性服务：空库时建管理员；每次启动按用户名找到它、刷邮箱并补齐 onboard 标记（安装、升级、重建都会跑）。
   bootstrap:
     image: *server
-    # 不碰文件，按主人身份跑。
+    # 不碰文件，按用户身份跑。
     user: "${PUID}:${PGID}"
     entrypoint: ["node", "/usr/src/app/bootstrap.cjs"]
     configs:
@@ -86,9 +86,9 @@ services:
         target: /usr/src/app/bootstrap.cjs
     environment:
       # 变量只用于插值，容器里要显式写上；核心不给（没声明 webui.sso）时安装失败并说明原因。
-      # 值是建容器时的快照：主人改了邮箱，要升级或重装（可以不删数据）后新建的容器才拿到新值。
-      WONTON_OWNER_NAME: ${WONTON_OWNER_NAME:?核心没有注入主人名字}
-      WONTON_OWNER_EMAIL: ${WONTON_OWNER_EMAIL:?核心没有注入主人邮箱}
+      # 值是建容器时的快照：用户改了邮箱，要升级或重装（可以不删数据）后新建的容器才拿到新值。
+      WONTON_OWNER_NAME: ${WONTON_OWNER_NAME:?核心没有注入用户名字}
+      WONTON_OWNER_EMAIL: ${WONTON_OWNER_EMAIL:?核心没有注入用户邮箱}
       WONTON_SECRET_ADMIN_PASSWORD: ${WONTON_SECRET_ADMIN_PASSWORD}
       DB_HOSTNAME: database
       DB_USERNAME: ${WONTON_SECRET_DB_USERNAME}
@@ -198,32 +198,29 @@ configs:
 x-wonton:
   spec: "0.4"
   id: app.immich.immich
-  version: 0.1.0
+  version: 0.1.1
   kind: app
-  title: { zh: 相册, en: Immich }
-  description: { zh: 自托管的照片和视频相册，可按内容搜索, en: Self-hosted photo and video library with search by content }
+  title: { en: Immich }
+  description: { zh: "备份手机里的照片和视频，按人脸和内容搜索", en: "Back up your photos and videos, search by face and content" }
   icon: icon.png
   notices: [NOTICE]
-  category: photos
   screenshots: [screenshots/timeline.jpg, screenshots/viewer.jpg, screenshots/search.jpg]
   author: { name: geraldpeng6 }
   homepage: https://immich.app
   license: AGPL-3.0-only
-  tags: [immich, 照片, 相册, 视频, photos, 搜索]
+  tags:
+    zh: [相册, AI]
+    en: [Photos, AI]
   about:
     zh: |
-      在云吞 App 里打开 Immich 网页，浏览、搜索和上传照片、视频。
+      照片和视频从手机备份到家里的主机，时间线、相册和人脸、内容搜索都在网页里。
 
-      登录只走云吞账号（OIDC），Immich 自己的密码登录关闭。OAuth 等设置由插件固定，Immich 的管理设置界面因此只读。
-
-      原件按「存储标签/年/年-月-日/文件名」存进共享文件夹 photos，其他应用也能读取；缩略图、转码视频和数据库是插件的派生数据，不进共享文件夹。
+      原图存进共享文件夹 photos，别的应用也读得到；缩略图和转码视频另存，不占共享文件夹。
     en: |
-      Open the Immich web page in the Wonton App to browse, search and upload photos and videos.
+      Photos and videos are backed up from your phone to your server; browse the timeline, albums and search by face or content in the web page.
 
-      Sign-in goes through the Wonton account only (OIDC); Immich's own password login is disabled. OAuth and similar settings are fixed by the plugin, so Immich's admin settings are read-only.
-
-      Originals go to the photos shared folder as "storage label/year/year-month-day/filename", readable by other apps; thumbnails, transcoded videos and the database are derived data kept out of it.
-  release_notes: { zh: 第一版。, en: First release. }
+      Originals go into the photos shared folder, where other apps can read them; thumbnails and transcoded videos are kept elsewhere.
+  release_notes: { zh: 名字和说明更新。, en: Product name and description update. }
   webui:
     service: server
     port: 2283
@@ -242,6 +239,7 @@ x-wonton:
       generate: { bytes: 32 }
     admin_password:
       generate: { bytes: 32 }
+  # 多架构镜像；上游要求最低 6G 内存（https://docs.immich.app/install/requirements），推荐 8G。
   requirements:
     arch: [amd64, arm64]
-    memory: 8G
+    memory: 6G

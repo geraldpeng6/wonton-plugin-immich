@@ -5,7 +5,7 @@ MCP=0
 web_assert() { grep -qi 'immich'; }   # 标准输入：应用真实页面
 
 # 走应用自己的 OAuth 端点（浏览器里 SPA 走的就是这套）：authorize → Hydra（核心会话自动登录）→
-# 回调地址拿 code/state → 应用 callback 换会话 → 应用自己的“当前用户”接口确认是主人管理员。
+# 回调地址拿 code/state → 应用 callback 换会话 → 应用自己的“当前用户”接口确认是用户管理员。
 identity_check() {
   local r url final state body me
   r="$(curl -sS --noproxy '*' -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Content-Type: application/json' \
@@ -22,5 +22,5 @@ identity_check() {
     "$SMOKE_WEB_URL/api/oauth/callback")" || { echo "callback 失败：$r"; return 1; }
   me="$(web_get /api/users/me -H 'Accept: application/json')" || { echo "/api/users/me 失败：$me"; return 1; }
   jq -e --arg u "$SMOKE_OWNER" '.isAdmin == true and (.email | startswith($u + "@"))' <<<"$me" >/dev/null ||
-    { echo "当前用户不是主人管理员：$me"; return 1; }
+    { echo "当前用户不是用户管理员：$me"; return 1; }
 }

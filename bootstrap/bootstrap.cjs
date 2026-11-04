@@ -1,4 +1,4 @@
-// 一次性安装服务：建主人账号，每次启动按核心注入的用户名（OIDC 的 sub）核对它。
+// 一次性安装服务：建用户账号，每次启动按核心注入的用户名（OIDC 的 sub）核对它。
 // 用户名装上以后不变；邮箱按注入值同步，显示名由 Immich 管理。密码登录关闭后拿不到会话，
 // onboard 标记直写 Immich 自己的 user_metadata；已经写过就跳过，不依赖管理员密码。
 const { Client } = require('/usr/src/app/server/node_modules/pg');
@@ -31,11 +31,11 @@ async function createAdmin() {
   return user.id;
 }
 
-// 邮箱可以被别的账号占用（用户名不能），停下让主人看到原因。
+// 邮箱可以被别的账号占用（用户名不能），停下让用户看到原因。
 async function assertEmailFree(db, userId) {
   const clash = await db.query(`SELECT id FROM "user" WHERE id <> $1 AND lower(email) = $2`, [userId, email]);
   if (clash.rows[0]) {
-    throw new Error(`主人邮箱 ${email} 已被另一个账号占用（id=${clash.rows[0].id}）`);
+    throw new Error(`用户邮箱 ${email} 已被另一个账号占用（id=${clash.rows[0].id}）`);
   }
 }
 
@@ -80,7 +80,7 @@ async function main() {
         console.log(`恢复首次建号中断的 OIDC 绑定（id=${userId}）`);
       } else {
         throw new Error(
-          `找不到用户名为 ${name} 的主人账号，库里也认领不出唯一且未绑定 OIDC 的管理员（${admins.rows.length} 个管理员）`,
+          `找不到用户名为 ${name} 的用户账号，库里也认领不出唯一且未绑定 OIDC 的管理员（${admins.rows.length} 个管理员）`,
         );
       }
     }
@@ -88,7 +88,7 @@ async function main() {
       userId = await createAdmin();
     }
     await reconcile(db, userId);
-    console.log(`主人账号已按用户名核对（id=${userId}）`);
+    console.log(`用户账号已按用户名核对（id=${userId}）`);
   } finally {
     await db.end();
   }
