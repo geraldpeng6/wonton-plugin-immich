@@ -1,0 +1,247 @@
+# Immich 相册插件：登录只走核心的 OIDC（Immich 自己的密码登录关掉）；照片原件放共享文件夹 photos，
+# 缩略图、转码、数据库等派生数据放插件自己的数据目录。
+#
+# 首次安装时 bootstrap 在空库里按注入的用户名建管理员；用户名就是 OIDC 的 sub，装上以后不变，每次启动按它认账号，
+# 只更新能变的邮箱。主人邮箱被别的账号占用时报错。
+#
+# 设置界面：OAuth 等设置由 IMMICH_CONFIG_FILE 指向的配置文件固定，Immich 管理界面因此整体只读（上游行为）；
+# 要改这些设置得改这里的配置节。
+services:
+  server:
+    # 上游官方镜像，按 v3.3.5 官方 compose 的版本组合固定（license: AGPL-3.0-only）。
+    image: &server ghcr.io/immich-app/immich-server:v3.3.5@sha256:485d546a2e31d6a8b4db8423fcba5c109de8c218d93410af115fd1ccfc4352a6
+    # 以主人身份运行：共享文件夹里写下的文件归主人，数据目录也按 PUID:PGID 交给它。
+    user: "${PUID}:${PGID}"
+    environment:
+      IMMICH_CONFIG_FILE: /usr/src/app/wonton-config.json
+      DB_HOSTNAME: database
+      DB_USERNAME: ${WONTON_SECRET_DB_USERNAME}
+      DB_PASSWORD: ${WONTON_SECRET_DB_PASSWORD}
+      DB_DATABASE_NAME: immich
+      REDIS_HOSTNAME: redis
+      # 服务名是 machine-learning，上游默认的 immich-machine-learning 在云吞里解析不到。
+      IMMICH_MACHINE_LEARNING_URL: http://machine-learning:3003
+      # 媒体根放在插件数据目录（upload/thumbs/encoded-video/profile/backups 都跟着它），只把 library 换成共享文件夹。
+      IMMICH_MEDIA_LOCATION: /data
+      TZ: ${TZ}
+    volumes:
+      # 派生数据都在 /data；共享文件夹只挂在它下面的 library，里面不出现 thumbs 这类空目录。
+      - ${WONTON_APP_DATA}/media:/data
+      # 只申请了写共享文件夹 photos（storage.share.photos:write）。共享文件夹只能整个挂载。
+      - ${WONTON_SHARE_PHOTOS}:/data/library
+    configs:
+      # OAuth 设置：内容里的 ${WONTON_OIDC_*} 在安装时插值。文件不在挂载点里。
+      - source: immich-config
+        target: /usr/src/app/wonton-config.json
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      prepare:
+        condition: service_completed_successfully
+    healthcheck:
+      # 镜像自带的 immich-healthcheck 请求 /api/server/ping 并要求回 {"res":"pong"}，查的是 API 真正可用。
+      test: ["CMD", "immich-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 2m
+      start_interval: 5s
+    stop_grace_period: 5m
+
+  # 一次性服务：Immich 要求每个媒体子目录里有 .immich 标记才能启动，数据目录里的挂载是空的，先补齐。
+  # 必须在 server 启动前跑完，所以 server 依赖它；它自己不需要网络。
+  prepare:
+    image: *server
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        for d in upload thumbs encoded-video profile backups library; do
+          mkdir -p "/data/$$d"
+          [ -f "/data/$$d/.immich" ] || : > "/data/$$d/.immich"
+        done
+    user: "${PUID}:${PGID}"
+    # 只读根文件系统，临时文件走 tmpfs。
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      - ${WONTON_APP_DATA}/media:/data
+      # 共享文件夹的根上只写一个 .immich 标记文件，不建目录。
+      - ${WONTON_SHARE_PHOTOS}:/data/library
+    network_mode: none
+    restart: "no"
+
+  # 一次性服务：空库时建管理员；每次启动按用户名找到它、刷邮箱并补齐 onboard 标记（安装、升级、重建都会跑）。
+  bootstrap:
+    image: *server
+    # 不碰文件，按主人身份跑。
+    user: "${PUID}:${PGID}"
+    entrypoint: ["node", "/usr/src/app/bootstrap.cjs"]
+    configs:
+      # 有 configs，不能 read_only（核心往根文件系统写文件）。
+      - source: bootstrap
+        target: /usr/src/app/bootstrap.cjs
+    environment:
+      # 变量只用于插值，容器里要显式写上；核心不给（没声明 webui.sso）时安装失败并说明原因。
+      # 值是建容器时的快照：主人改了邮箱，要升级或重装（可以不删数据）后新建的容器才拿到新值。
+      WONTON_OWNER_NAME: ${WONTON_OWNER_NAME:?核心没有注入主人名字}
+      WONTON_OWNER_EMAIL: ${WONTON_OWNER_EMAIL:?核心没有注入主人邮箱}
+      WONTON_SECRET_ADMIN_PASSWORD: ${WONTON_SECRET_ADMIN_PASSWORD}
+      DB_HOSTNAME: database
+      DB_USERNAME: ${WONTON_SECRET_DB_USERNAME}
+      DB_PASSWORD: ${WONTON_SECRET_DB_PASSWORD}
+      DB_DATABASE_NAME: immich
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: "no"
+
+  machine-learning:
+    # CPU 版。清单不申请显卡：只有一个 CPU 镜像，申请了就会把设备交进来却用不上；显卡版另开 PR。
+    image: ghcr.io/immich-app/immich-machine-learning:v3.3.5@sha256:5b28c9352c8374b8a1ed96fbdd8d6755fea6e43510ec43fdf6538aa02ea40f56
+    user: "${PUID}:${PGID}"
+    environment:
+      TZ: ${TZ}
+      # 模型经 network.egress 从 Hugging Face 官方地址下载，不另配 DNS、代理或下载后端。
+    volumes:
+      # 模型缓存放插件数据目录；保留数据重装时不重下。
+      - ${WONTON_APP_DATA}/model-cache:/cache
+    depends_on:
+      # 让核心把 bootstrap 当一次性服务：等它以 0 退出再启动机器学习。
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      # 镜像自带的 healthcheck.py 请求推理服务的 /ping，查的是服务真正可用。
+      test: ["CMD", "python3", "healthcheck.py"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 3m
+      start_interval: 5s
+
+  redis:
+    # 官方 compose 固定的 valkey 版本（license: BSD-3-Clause）。
+    image: docker.io/valkey/valkey:9@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d
+    # 只读根文件系统；Valkey 的工作目录和快照写 tmpfs。
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+      start_interval: 2s
+
+  database:
+    # Immich 自己的 PostgreSQL 镜像，带向量扩展（license: AGPL-3.0-only；PostgreSQL 部分为 PostgreSQL License）。
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+    environment:
+      POSTGRES_USER: ${WONTON_SECRET_DB_USERNAME}
+      POSTGRES_PASSWORD: ${WONTON_SECRET_DB_PASSWORD}
+      POSTGRES_DB: immich
+      POSTGRES_INITDB_ARGS: --data-checksums
+    volumes:
+      # 数据库是派生数据，放插件数据目录，不进共享文件夹。
+      - ${WONTON_APP_DATA}/postgres:/var/lib/postgresql/data
+    shm_size: 128mb
+    # 只读根文件系统；数据卷仍然可写，socket 和临时文件走 tmpfs。
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
+      # 入口脚本会生成 postgresql.conf 到这里。
+      - /etc/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${WONTON_SECRET_DB_USERNAME}", "-d", "immich", "-q"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+      start_interval: 2s
+
+configs:
+  bootstrap:
+    file: bootstrap/bootstrap.cjs
+  immich-config:
+    # 只写 oauth 一节：设置文件里没写的键沿用默认值。
+    # allowInsecureRequests 必须为 true：核心网关不做 TLS，签发方（auth.<基础域名>）和插件网页一样是 http，
+    # openid-client 默认只收 https；换成 https 的部署时这项没有副作用。
+    content: |
+      {
+        "oauth": {
+          "enabled": true,
+          "issuerUrl": "${WONTON_OIDC_ISSUER}",
+          "clientId": "${WONTON_OIDC_CLIENT_ID}",
+          "clientSecret": "${WONTON_OIDC_CLIENT_SECRET}",
+          "scope": "openid email profile",
+          "allowInsecureRequests": true,
+          "tokenEndpointAuthMethod": "client_secret_post",
+          "autoLaunch": true,
+          "autoRegister": false,
+          "buttonText": "Wonton"
+        },
+        "passwordLogin": {
+          "enabled": false
+        },
+        "storageTemplate": {
+          "enabled": true,
+          "template": "{{y}}/{{y}}-{{MM}}-{{dd}}/{{filename}}"
+        }
+      }
+
+x-wonton:
+  spec: "0.4"
+  id: app.immich.immich
+  version: 0.1.0
+  kind: app
+  title: { zh: 相册, en: Immich }
+  description: { zh: 自托管的照片和视频相册，可按内容搜索, en: Self-hosted photo and video library with search by content }
+  icon: icon.png
+  notices: [NOTICE]
+  category: photos
+  screenshots: [screenshots/timeline.jpg, screenshots/viewer.jpg, screenshots/search.jpg]
+  author: { name: geraldpeng6 }
+  homepage: https://immich.app
+  license: AGPL-3.0-only
+  tags: [immich, 照片, 相册, 视频, photos, 搜索]
+  about:
+    zh: |
+      在云吞 App 里打开 Immich 网页，浏览、搜索和上传照片、视频。
+
+      登录只走云吞账号（OIDC），Immich 自己的密码登录关闭。OAuth 等设置由插件固定，Immich 的管理设置界面因此只读。
+
+      原件按「存储标签/年/年-月-日/文件名」存进共享文件夹 photos，其他应用也能读取；缩略图、转码视频和数据库是插件的派生数据，不进共享文件夹。
+    en: |
+      Open the Immich web page in the Wonton App to browse, search and upload photos and videos.
+
+      Sign-in goes through the Wonton account only (OIDC); Immich's own password login is disabled. OAuth and similar settings are fixed by the plugin, so Immich's admin settings are read-only.
+
+      Originals go to the photos shared folder as "storage label/year/year-month-day/filename", readable by other apps; thumbnails, transcoded videos and the database are derived data kept out of it.
+  release_notes: { zh: 第一版。, en: First release. }
+  webui:
+    service: server
+    port: 2283
+    sso: oidc
+    oidc:
+      redirect_paths: [/auth/login, /user-settings]
+      token_endpoint_auth_method: client_secret_post
+  permissions:
+    - storage.share.photos:write
+    - network.egress
+    - owner.identity
+  secrets:
+    db_username:
+      generate: { bytes: 8 }
+    db_password:
+      generate: { bytes: 32 }
+    admin_password:
+      generate: { bytes: 32 }
+  requirements:
+    arch: [amd64, arm64]
+    memory: 8G
