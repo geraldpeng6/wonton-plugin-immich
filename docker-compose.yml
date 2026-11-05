@@ -113,7 +113,7 @@ services:
   # （Immich 的 smart search），经核心的 MCP 总线给 Bot 用。它只调 Immich 的读接口；key 失效时工具
   # 会报“权限失效，重启插件会重建”。取舍见 README。
   mcp:
-    image: ghcr.io/geraldpeng6/immich-mcp:0.2.0
+    image: ghcr.io/geraldpeng6/immich-mcp:0.2.0@sha256:b4f6cb4ad458bace01795b1deec17d13008946636ae095305b273cc12e708e97
     restart: unless-stopped
     user: "${PUID}:${PGID}"
     read_only: true
