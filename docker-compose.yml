@@ -1,4 +1,4 @@
-# Immich 相册插件：登录只走核心的 OIDC（Immich 自己的密码登录关掉）；照片原件放共享文件夹 photos，
+# Immich 相册插件：网页登录走核心的 OIDC，密码登录为局域网直连而开（取舍见 README）；照片原件放共享文件夹 photos，
 # 缩略图、转码、数据库等派生数据放插件自己的数据目录。
 #
 # 首次安装时 bootstrap 在空库里按注入的用户名建管理员；用户名就是 OIDC 的 sub，装上以后不变，每次启动按它认账号，
@@ -7,6 +7,8 @@
 # Bot 按内容搜照片：本仓库自己的只读 MCP 服务（images/immich-mcp/）调 Immich 的 smart search，
 # 凭据是 bootstrap 每次启动核对重建的 Immich API key（最小权限 asset.read、asset.view），
 # 写进插件数据目录、MCP 服务只读挂载。
+# 局域网直连（Immich 官方 App 等第三方客户端）：详情页开关打开后 Immich 的 2283 端口开在局域网地址上，
+# App 用 lan.client 给出的邮箱和密码直连登录；取舍见 README 的“局域网直连”。
 #
 # 设置界面：OAuth 等设置由 IMMICH_CONFIG_FILE 指向的配置文件固定，Immich 管理界面因此整体只读（上游行为）；
 # 要改这些设置得改这里的配置节。
@@ -203,6 +205,7 @@ configs:
     file: bootstrap/bootstrap.cjs
   immich-config:
     # 只写 oauth 一节：设置文件里没写的键沿用默认值。
+    # passwordLogin 打开是给局域网 App 的登录路径（lan.client 的账号就是它）；经网关的网页登录仍走 OIDC。
     # allowInsecureRequests 必须为 true：核心网关不做 TLS，签发方（auth.<基础域名>）和插件网页一样是 http，
     # openid-client 默认只收 https；换成 https 的部署时这项没有副作用。
     content: |
@@ -220,7 +223,7 @@ configs:
           "buttonText": "Wonton"
         },
         "passwordLogin": {
-          "enabled": false
+          "enabled": true
         },
         "storageTemplate": {
           "enabled": true,
@@ -257,7 +260,7 @@ x-wonton:
       Originals go into the photos shared folder, where other apps can read them; thumbnails and transcoded videos are kept elsewhere.
 
       Bots can also find photos for you: describe the scene ("a sunset at the beach") and the bot searches the library by content, getting file names, dates and thumbnails.
-  release_notes: { zh: Bot 能按画面内容搜照片了。, en: Bots can now search photos by content. }
+  release_notes: { zh: Bot 能按画面内容搜照片了；局域网里的 Immich 官方 App 和第三方客户端也可以直连备份。, en: Bots can now search photos by content; the official Immich app and third-party clients on the LAN can also back up directly. }
   webui:
     service: server
     port: 2283
@@ -269,10 +272,22 @@ x-wonton:
     service: mcp
     port: 8080
     transport: streamable-http
+  # 局域网直连给 Immich 官方 App 和第三方客户端：端口受详情页开关管（默认关），
+  # 账号是 bootstrap 建的用户账号——Immich 的登录名是邮箱，密码是建号时核心生成的 admin_password。
+  # 官方 App 的 OAuth 回调是自定义 scheme，核心只登记网关上的回调路径，App 走不了 OAuth，用密码登录。
+  # 密码登录的全局取舍见 README 的“局域网直连”。
+  lan:
+    ports:
+      - { service: server, port: 2283 }
+    client:
+      address: "http://{host}:2283"
+      username: "{email}"
+      password: "{secret:admin_password}"
   permissions:
     - storage.share.photos:write
     - network.egress
     - owner.identity
+    - network.lan
   secrets:
     db_username:
       generate: { bytes: 8 }
@@ -282,6 +297,7 @@ x-wonton:
       generate: { bytes: 32 }
   # 多架构镜像；上游要求最低 6G 内存（https://docs.immich.app/install/requirements），推荐 8G。
   # 机器学习（smart search 的索引）首次启动要下载约 500 MB 模型，索引库随照片数增长，放插件数据目录。
+  # 局域网直连不经网关：App 在局域网里按用户身份调 Immich 自己的接口，权限由 Immich 的账号体系管。
   requirements:
     arch: [amd64, arm64]
     memory: 6G
