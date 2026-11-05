@@ -14,6 +14,12 @@
 - 设置在 compose 的 `immich-config` 里，经 `IMMICH_CONFIG_FILE` 交给 Immich：OAuth、关闭密码登录、存储模板三组。
   上游规定存在配置文件时管理界面只读；没写进配置的设置是 Immich 的默认值，在这里也改不了。
 - 机器学习经出网从 Hugging Face 默认地址下载模型；要换地址只能改 compose。
+- Bot 按内容搜照片：本仓库的只读 MCP 服务（`images/immich-mcp/`）经核心的 MCP 总线给 Bot 一个
+  `search_photos` 工具，按画面描述调 Immich 的 smart search，返回文件名、拍摄日期和缩略图。它只调 Immich 的
+  读接口（搜索、缩略图、ping），不做任何写操作，工具标了只读（`readOnlyHint`），Bot 调用不需要主人确认。
+  凭据是首次建号时用建号会话创建的 Immich API key（名字 `wonton-tools`），写在插件数据目录的 `mcp/apikey`，
+  只有这个服务读得到。主人在 Immich 里吊销它之后，健康检查会变红、工具也会报错说明；重建要删除插件数据重装
+  （首次建号重新拿到会话才能建 key）。
 
 插件图标 `icon.png` 是 Immich v3.3.5 的官方 512×512 PNG 图标，未用图片模型生成；来源、版权、处理方式、上游 AGPL-3.0 全文和商标说明见 [NOTICE](NOTICE)。
 Immich 名称和标志是 Immich 项目的商标；本插件使用标志仅用于标识所集成的应用，不表示与 Immich 存在官方合作或获得其背书。
@@ -48,7 +54,8 @@ scripts/dev.sh install
 | --- | --- |
 | `docker-compose.yml` | 插件本身：compose 加上 `x-wonton` 清单 |
 | `icon.png`、`screenshots/` | 商店图标和竖屏截图 |
-| `bootstrap/bootstrap.cjs` | 一次性服务：建管理员，每次启动按用户名核对用户身份 |
+| `bootstrap/bootstrap.cjs` | 一次性服务：建管理员，每次启动按用户名核对用户身份，首次建号时给搜索服务建 Immich API key |
+| `images/immich-mcp/` | 只读搜索服务的源码和 Dockerfile：一个 `search_photos` 工具，经核心的 MCP 总线给 Bot 用 |
 | `scripts/check.sh` | 检查插件包，规则和安装时一样 |
 | `scripts/dev.sh` | 开发环境：起一套云吞，装、重装、卸载插件，看日志 |
 | `scripts/publish.sh` | 发布一个版本：构建自己的镜像、按摘要写回、打 tag、推送 |

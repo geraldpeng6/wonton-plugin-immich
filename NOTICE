@@ -633,3 +633,13 @@ copy of the Program in return for a fee.
 商标
 
 Immich 名称和标志归 Immich 项目及其权利人所有。这里只用它们标识本插件集成的应用，不表示与上游存在官方合作、隶属关系或获得其背书。软件许可证不授予商标权。
+
+搜索服务（images/immich-mcp/）
+==============================
+
+给 Bot 用的只读搜索服务是本仓库自己的 Rust 程序，链接这些第三方库（均允许商用分发）：
+
+- rmcp（MCP 官方 Rust SDK）：MIT OR Apache-2.0
+- axum、tokio、tokio-util、reqwest、serde、serde_json、base64：MIT OR Apache-2.0
+
+许可证全文见各 crate 的源码包（构建时由 crates.io 取回，Cargo.lock 按版本固定）。
