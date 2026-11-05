@@ -62,8 +62,9 @@ async function ensureApiKey(db, userId) {
     if (rows.rows.length === 1 && rows.rows[0].key_hex === fileHex) {
       return;
     }
-    await db.query(`DELETE FROM api_key WHERE name = $1 AND "userId" = $2`, [keyName, userId]);
   }
+  // 建新 key 之前无条件删旧行：文件没了或写文件前崩溃也不会留下对不上的行，永远只有一行。
+  await db.query(`DELETE FROM api_key WHERE name = $1 AND "userId" = $2`, [keyName, userId]);
   token = crypto.randomBytes(32).toString('base64').replaceAll(/\W/g, '');
   const hashed = crypto.createHash('sha256').update(token).digest();
   await db.query(

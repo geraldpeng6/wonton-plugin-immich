@@ -96,7 +96,10 @@ impl SearchServer {
             match client.thumbnail(&asset.id).await {
                 Ok(Some((bytes, mime))) => fetched.push((bytes, mime)),
                 Ok(None) => missing += 1,
-                Err(error) => return Err(api_error(error)),
+                // 凭据失效必须整次失败（重启插件才能好）；Immich 别的错只影响那一张，
+                // 文字列表照常给，缺的算进“没带上”。
+                Err(error @ ApiError::Auth(_)) => return Err(api_error(error)),
+                Err(ApiError::Upstream(_)) => missing += 1,
             }
         }
         let (chosen, skipped) = select_thumbnails(
@@ -135,12 +138,9 @@ fn select_thumbnails(sizes: &[usize], budget: usize) -> (Vec<usize>, usize) {
     (chosen, skipped)
 }
 
-/// 凭据失效和 Immich 出错分开报：前者重启插件就能好，后者要去 Immich 那边看。
+/// 凭据失效和 Immich 出错都在错误文字里说清：前者重启插件就能好，后者要去 Immich 那边看。
 fn api_error(error: ApiError) -> McpError {
-    match &error {
-        ApiError::Auth(_) => McpError::internal_error(error.to_string(), None),
-        ApiError::Upstream(_) => McpError::internal_error(error.to_string(), None),
-    }
+    McpError::internal_error(error.to_string(), None)
 }
 
 #[tool_handler(router = self.tool_router)]

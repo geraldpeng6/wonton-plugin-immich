@@ -12,6 +12,8 @@ pub enum ApiError {
     Upstream(String),
 }
 
+impl std::error::Error for ApiError {}
+
 impl core::fmt::Display for ApiError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -55,7 +57,7 @@ impl Client {
             .header("x-api-key", &self.apikey)
             .send()
             .await
-            .map_err(|e| ApiError::Upstream(format!("请求 Immich {path} 失败：{e}")))
+            .map_err(|e| ApiError::Upstream(format!("请求 Immich {path} 失败：{}", error_chain(&e))))
     }
 
     async fn post_json(
@@ -69,12 +71,15 @@ impl Client {
             .json(body)
             .send()
             .await
-            .map_err(|e| ApiError::Upstream(format!("请求 Immich {path} 失败：{e}")))
+            .map_err(|e| ApiError::Upstream(format!("请求 Immich {path} 失败：{}", error_chain(&e))))
     }
 
     /// Immich 起没起来，健康检查只看这个。
     pub async fn ping(&self) -> Result<(), String> {
-        let response = self.get("/api/server/ping").await.map_err(|e| e.to_string())?;
+        let response = self
+            .get("/api/server/ping")
+            .await
+            .map_err(|e| format!("请求 Immich /api/server/ping 失败：{}", error_chain(&e)))?;
         if !response.status().is_success() {
             return Err(format!("Immich /api/server/ping 返回 {}", response.status()));
         }
@@ -105,7 +110,7 @@ impl Client {
         let text = response
             .text()
             .await
-            .map_err(|e| ApiError::Upstream(format!("读 Immich 搜索响应失败：{e}")))?;
+            .map_err(|e| ApiError::Upstream(format!("读 Immich 搜索响应失败：{}", error_chain(&e))))?;
         Self::check_status(status, "/api/search/smart", &text)?;
         let value: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| ApiError::Upstream(format!("Immich 搜索响应不是 JSON：{e}；{}", truncate(&text, 160))))?;
@@ -124,7 +129,7 @@ impl Client {
         let bytes = response
             .bytes()
             .await
-            .map_err(|e| ApiError::Upstream(format!("读 Immich 缩略图 {id} 失败：{e}")))?;
+            .map_err(|e| ApiError::Upstream(format!("读 Immich 缩略图 {id} 失败：{}", error_chain(&e))))?;
         Self::check_status(status, &format!("/api/assets/{id}/thumbnail"), "")?;
         let mime = headers_mime(&bytes);
         Ok(Some((bytes.to_vec(), mime)))
@@ -203,6 +208,18 @@ pub(crate) fn truncate(text: &str, chars: usize) -> String {
         let cut: String = text.chars().take(chars).collect();
         format!("{cut}…")
     }
+}
+
+/// 错误连同它的原因链一起写出来：reqwest 的顶层 Display 只有"发送失败"，
+/// 连不上、域名解析不了这些真实原因在 source 里。
+pub(crate) fn error_chain<E: std::error::Error>(error: &E) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(&format!("：{cause}"));
+        source = cause.source();
+    }
+    text
 }
 
 #[cfg(test)]
