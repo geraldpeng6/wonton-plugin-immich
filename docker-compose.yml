@@ -5,7 +5,8 @@
 # 只更新能变的邮箱。用户邮箱被别的账号占用时报错。
 #
 # Bot 按内容搜照片：本仓库自己的只读 MCP 服务（images/immich-mcp/）调 Immich 的 smart search，
-# 凭据是 bootstrap 建号会话创建的 Immich API key，写进插件数据目录、MCP 服务只读挂载。
+# 凭据是 bootstrap 每次启动核对重建的 Immich API key（最小权限 asset.read、asset.view），
+# 写进插件数据目录、MCP 服务只读挂载。
 #
 # 设置界面：OAuth 等设置由 IMMICH_CONFIG_FILE 指向的配置文件固定，Immich 管理界面因此整体只读（上游行为）；
 # 要改这些设置得改这里的配置节。
@@ -78,7 +79,7 @@ services:
     restart: "no"
 
   # 一次性服务：空库时建管理员；每次启动按用户名找到它、刷邮箱并补齐 onboard 标记（安装、升级、重建都会跑）。
-  # 首次建号时顺带用建号会话给 Bot 的搜索服务创建 Immich API key（见 mcp 服务）。
+  # 每次启动都核对 Bot 搜索服务的 Immich API key（文件和库里的行一致就跳过，否则重建，见 mcp 服务）。
   bootstrap:
     image: *server
     # 不碰文件，按用户身份跑。
@@ -107,8 +108,8 @@ services:
     restart: "no"
 
   # 自己写的只读搜索服务（images/immich-mcp/，scripts/publish.sh 发布）：一个工具，按画面内容搜照片
-  # （Immich 的 smart search），经核心的 MCP 总线给 Bot 用。它只调 Immich 的读接口，凭据是 bootstrap
-  # 建号时创建的 Immich API key，只读挂进来；key 失效时工具报错，重装插件（不删数据也行，见 README）恢复。
+  # （Immich 的 smart search），经核心的 MCP 总线给 Bot 用。它只调 Immich 的读接口；key 失效时工具
+  # 会报“权限失效，重启插件会重建”。取舍见 README。
   mcp:
     image: ghcr.io/geraldpeng6/immich-mcp:0.2.0
     restart: unless-stopped

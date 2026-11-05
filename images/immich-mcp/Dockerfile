@@ -2,7 +2,7 @@
 # 没有 shell 和运行时。健康检查用二进制自己的 healthcheck 子命令。
 #
 # 构建要访问 crates.io。Docker 在另一台机器上时把 http_proxy、https_proxy 传进来：
-# docker build --network host --build-arg https_proxy=... -f images/mcp/Dockerfile -t wonton-immich-mcp:dev .
+# docker build --network host --build-arg https_proxy=... -t wonton-immich-mcp:dev .
 FROM rust:1.99-alpine@sha256:7e9e2d068a107a2adafd19930011178d14a78326053cd4c3a9f7ad3fd049557d AS build
 
 ARG http_proxy

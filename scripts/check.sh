@@ -13,5 +13,14 @@ case "${1:-}" in
   '' | --official) ;;
   *) die "用法：scripts/check.sh [--official]" ;;
 esac
+
+# 本仓库自己的 Rust 服务带行为测试。有 cargo 就跑（测试要经 crates.io 拿依赖，
+# 拉不下来的机器按 README 的“开发环境”先配代理）；没有 cargo 的机器跳过，不挡包检查。
+if [[ -d "$root/images/immich-mcp" ]] && command -v cargo >/dev/null 2>&1; then
+  info "跑搜索服务的测试（cargo test）"
+  (cd "$root/images/immich-mcp" && https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" cargo test --locked --quiet) ||
+    die "cargo test 没过"
+fi
+
 need_core_command check
 in_core "$root" plugin check /plugin "$@"

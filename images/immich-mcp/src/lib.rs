@@ -12,7 +12,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::get;
 use rmcp::transport::streamable_http_server::{
@@ -43,12 +42,11 @@ pub fn apikey_path() -> std::path::PathBuf {
         .unwrap_or_else(|| "/mcp-data/apikey".into())
 }
 
-/// 健康检查：能读到 key 文件，Immich 也答得上 ping，key 还是有效的。
+/// 健康检查只看进程活着和 Immich 的 ping：key 失效不影响照片网页，也不能把插件标红，
+/// key 的问题在工具调用时报（401/403 单独报“权限失效，重启插件会重建”）。
 pub async fn health() -> Result<(), String> {
-    let key = immich::read_apikey(&apikey_path())?;
-    let client = immich::Client::new(immich_base(), key);
-    client.ping().await?;
-    client.validate_key().await
+    let client = immich::Client::new(immich_base(), String::new());
+    client.ping().await
 }
 
 /// 起 Streamable HTTP 服务，`/mcp` 给总线，`/healthz` 给健康检查。
