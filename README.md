@@ -14,6 +14,16 @@
 - 设置在 compose 的 `immich-config` 里，经 `IMMICH_CONFIG_FILE` 交给 Immich：OAuth、关闭密码登录、存储模板三组。
   上游规定存在配置文件时管理界面只读；没写进配置的设置是 Immich 的默认值，在这里也改不了。
 - 机器学习经出网从 Hugging Face 默认地址下载模型；要换地址只能改 compose。
+  内存按上游要求最低 6G、推荐 8G；磁盘：搜索模型首次下载约 500 MB（visual + textual），缩略图、转码视频和
+  索引库随照片数增长，都放插件数据目录，不占共享文件夹。
+- Bot 按内容搜照片：本仓库的只读 MCP 服务（`images/immich-mcp/`）经核心的 MCP 总线给 Bot 一个
+  `search_photos` 工具，按画面描述调 Immich 的 smart search，返回文件名、拍摄日期和缩略图。它只调 Immich 的
+  读接口（搜索、缩略图、ping），不做任何写操作，工具标了只读（`readOnlyHint`），Bot 调用不需要用户确认。
+  凭据是 Immich API key（名字 `wonton-tools`），bootstrap 每次启动都核对：插件数据目录里的 token 文件和
+  库里的行一致就跳过，否则删掉旧行、重建 key、重写文件——中途崩溃、用户在 Immich 里吊销、换了库，重启插件
+  就恢复，不用动照片。权限只给搜索和缩略图要的 `asset.read`、`asset.view`（实测：搜索和缩略图可用，
+  同一把 key 删照片、上传返回 403）。token 文件属主和搜索服务是同一个用户、权限 0400，别的插件和 Bot 读不到。
+  key 失效不影响照片网页（健康检查只看 Immich 的 ping），工具调用时会单独报“权限失效，重启插件会重建”。
 
 插件图标 `icon.png` 是 Immich v3.3.5 的官方 512×512 PNG 图标，未用图片模型生成；来源、版权、处理方式、上游 AGPL-3.0 全文和商标说明见 [NOTICE](NOTICE)。
 Immich 名称和标志是 Immich 项目的商标；本插件使用标志仅用于标识所集成的应用，不表示与 Immich 存在官方合作或获得其背书。
@@ -48,7 +58,8 @@ scripts/dev.sh install
 | --- | --- |
 | `docker-compose.yml` | 插件本身：compose 加上 `x-wonton` 清单 |
 | `icon.png`、`screenshots/` | 商店图标和竖屏截图 |
-| `bootstrap/bootstrap.cjs` | 一次性服务：建管理员，每次启动按用户名核对用户身份 |
+| `bootstrap/bootstrap.cjs` | 一次性服务：建管理员，每次启动按用户名核对用户身份，并核对搜索服务的 Immich API key（对不上就重建） |
+| `images/immich-mcp/` | 只读搜索服务的源码和 Dockerfile：一个 `search_photos` 工具，经核心的 MCP 总线给 Bot 用 |
 | `scripts/check.sh` | 检查插件包，规则和安装时一样 |
 | `scripts/dev.sh` | 开发环境：起一套云吞，装、重装、卸载插件，看日志 |
 | `scripts/publish.sh` | 发布一个版本：构建自己的镜像、按摘要写回、打 tag、推送 |

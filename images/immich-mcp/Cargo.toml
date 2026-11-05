@@ -1,0 +1,33 @@
+[package]
+name = "wonton-immich-mcp"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+[lib]
+name = "wonton_immich_mcp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wonton-immich-mcp"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.8"
+base64 = "0.22"
+rmcp = { version = "=3.8.0", features = ["transport-streamable-http-server", "schemars"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+tokio-util = "0.7"
+
+[dependencies.reqwest]
+version = "0.12"
+default-features = false
+features = ["json"]
+
+[profile.release]
+strip = true
+panic = "abort"

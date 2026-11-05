@@ -4,6 +4,10 @@
 # 首次安装时 bootstrap 在空库里按注入的用户名建管理员；用户名就是 OIDC 的 sub，装上以后不变，每次启动按它认账号，
 # 只更新能变的邮箱。用户邮箱被别的账号占用时报错。
 #
+# Bot 按内容搜照片：本仓库自己的只读 MCP 服务（images/immich-mcp/）调 Immich 的 smart search，
+# 凭据是 bootstrap 每次启动核对重建的 Immich API key（最小权限 asset.read、asset.view），
+# 写进插件数据目录、MCP 服务只读挂载。
+#
 # 设置界面：OAuth 等设置由 IMMICH_CONFIG_FILE 指向的配置文件固定，Immich 管理界面因此整体只读（上游行为）；
 # 要改这些设置得改这里的配置节。
 services:
@@ -75,6 +79,7 @@ services:
     restart: "no"
 
   # 一次性服务：空库时建管理员；每次启动按用户名找到它、刷邮箱并补齐 onboard 标记（安装、升级、重建都会跑）。
+  # 每次启动都核对 Bot 搜索服务的 Immich API key（文件和库里的行一致就跳过，否则重建，见 mcp 服务）。
   bootstrap:
     image: *server
     # 不碰文件，按用户身份跑。
@@ -84,6 +89,9 @@ services:
       # 有 configs，不能 read_only（核心往根文件系统写文件）。
       - source: bootstrap
         target: /usr/src/app/bootstrap.cjs
+    volumes:
+      # API key 写进插件数据目录自己的子目录，MCP 服务只读挂走（不嵌套别的挂载源）。
+      - ${WONTON_APP_DATA}/mcp:/mcp-data
     environment:
       # 变量只用于插值，容器里要显式写上；核心不给（没声明 webui.sso）时安装失败并说明原因。
       # 值是建容器时的快照：用户改了邮箱，要升级或重装（可以不删数据）后新建的容器才拿到新值。
@@ -98,6 +106,31 @@ services:
       server:
         condition: service_healthy
     restart: "no"
+
+  # 自己写的只读搜索服务（images/immich-mcp/，scripts/publish.sh 发布）：一个工具，按画面内容搜照片
+  # （Immich 的 smart search），经核心的 MCP 总线给 Bot 用。它只调 Immich 的读接口；key 失效时工具
+  # 会报“权限失效，重启插件会重建”。取舍见 README。
+  mcp:
+    image: ghcr.io/geraldpeng6/immich-mcp:0.2.0
+    restart: unless-stopped
+    user: "${PUID}:${PGID}"
+    read_only: true
+    environment:
+      TZ: "${TZ}"
+      IMMICH_URL: http://server:2283
+      APIKEY_FILE: /mcp-data/apikey
+    volumes:
+      - ${WONTON_APP_DATA}/mcp:/mcp-data:ro
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/wonton-immich-mcp", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1m
+      start_interval: 5s
 
   machine-learning:
     # CPU 版。清单不申请显卡：只有一个 CPU 镜像，申请了就会把设备交进来却用不上；显卡版另开 PR。
@@ -198,7 +231,7 @@ configs:
 x-wonton:
   spec: "0.4"
   id: app.immich.immich
-  version: 0.1.1
+  version: 0.2.0
   kind: app
   title: { en: Immich }
   description: { zh: "备份手机里的照片和视频，按人脸和内容搜索", en: "Back up your photos and videos, search by face and content" }
@@ -216,11 +249,15 @@ x-wonton:
       照片和视频从手机备份到家里的主机，时间线、相册和人脸、内容搜索都在网页里。
 
       原图存进共享文件夹 photos，别的应用也读得到；缩略图和转码视频另存，不占共享文件夹。
+
+      Bot 也能帮你找照片：问它“找海滩上的日落”这类画面描述，它按内容在照片库里搜，拿到文件名、日期和缩略图。
     en: |
       Photos and videos are backed up from your phone to your server; browse the timeline, albums and search by face or content in the web page.
 
       Originals go into the photos shared folder, where other apps can read them; thumbnails and transcoded videos are kept elsewhere.
-  release_notes: { zh: 名字和说明更新。, en: Product name and description update. }
+
+      Bots can also find photos for you: describe the scene ("a sunset at the beach") and the bot searches the library by content, getting file names, dates and thumbnails.
+  release_notes: { zh: Bot 能按画面内容搜照片了。, en: Bots can now search photos by content. }
   webui:
     service: server
     port: 2283
@@ -228,6 +265,10 @@ x-wonton:
     oidc:
       redirect_paths: [/auth/login, /user-settings]
       token_endpoint_auth_method: client_secret_post
+  mcp:
+    service: mcp
+    port: 8080
+    transport: streamable-http
   permissions:
     - storage.share.photos:write
     - network.egress
@@ -240,6 +281,7 @@ x-wonton:
     admin_password:
       generate: { bytes: 32 }
   # 多架构镜像；上游要求最低 6G 内存（https://docs.immich.app/install/requirements），推荐 8G。
+  # 机器学习（smart search 的索引）首次启动要下载约 500 MB 模型，索引库随照片数增长，放插件数据目录。
   requirements:
     arch: [amd64, arm64]
     memory: 6G
