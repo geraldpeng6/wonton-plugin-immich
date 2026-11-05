@@ -109,7 +109,7 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # 自己写的只读搜索服务（images/immich-mcp/，scripts/publish.sh 发布）：一个工具，按画面内容搜照片
+  # 自己写的只读搜索服务（images/immich-mcp/，由 .github/workflows/publish-images.yml 构建发布）：一个工具，按画面内容搜照片
   # （Immich 的 smart search），经核心的 MCP 总线给 Bot 用。它只调 Immich 的读接口；key 失效时工具
   # 会报“权限失效，重启插件会重建”。取舍见 README。
   mcp:
