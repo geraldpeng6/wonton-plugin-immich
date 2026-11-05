@@ -114,7 +114,7 @@ impl SearchServer {
         let unavailable = missing + skipped;
         if unavailable > 0 {
             content.push(ContentBlock::text(format!(
-                "另有 {unavailable} 张的缩略图没带上（超过结果大小上限，或照片还没生成好缩略图）；文字列表是全的，需要看图可以让用户在 Immich 网页里打开。"
+                "另有 {unavailable} 张的缩略图没带上（超过结果大小上限，或缩略图暂时拿不到）；文字列表是全的，需要看图可以让用户在 Immich 网页里打开。"
             )));
         }
         Ok(CallToolResult::success(content))
