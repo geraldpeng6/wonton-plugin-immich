@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { Client } = require('/usr/src/app/server/node_modules/pg');
+const { Queue } = require('/usr/src/app/server/node_modules/bullmq');
 
 const base = 'http://server:2283';
 const name = process.env.WONTON_OWNER_NAME;
@@ -108,6 +109,37 @@ async function reconcile(db, userId) {
   }
 }
 
+// 按 Immich v3.3.5 实测：queue.service.start 的“缺失”任务和 ConfigRepository 的 BullMQ 配置。
+// BullMQ 接受任意名字，先核对镜像内的枚举，避免升级后把任务静默放进没有消费者的队列。
+async function queueMissingJobs() {
+  const { QueueName, JobName } = await import('/usr/src/app/server/dist/enum.js');
+  const jobs = [
+    ['SmartSearch', 'smartSearch', 'SmartSearchQueueAll'],
+    ['FaceDetection', 'faceDetection', 'AssetDetectFacesQueueAll'],
+  ];
+  for (const [queueKey, queueName, jobName] of jobs) {
+    if (QueueName[queueKey] !== queueName || JobName[jobName] !== jobName) {
+      throw new Error(`Immich 内部任务定义不匹配（按 v3.3.5 验证）：${queueName}/${jobName}，请核对上游版本`);
+    }
+  }
+  for (const [, queueName, jobName] of jobs) {
+    const queue = new Queue(queueName, {
+      prefix: 'immich_bull',
+      connection: { host: process.env.REDIS_HOSTNAME, connectTimeout: 10000, retryStrategy: null },
+      defaultJobOptions: { attempts: 1, removeOnComplete: true, removeOnFail: false },
+    });
+    queue.on('error', (error) => console.error(`Redis 队列 ${queueName} 出错：${error.message}`));
+    try {
+      await queue.add(jobName, { force: false });
+      console.log(`已排入缺失识别任务：${queueName}/${jobName}（force=false）`);
+    } catch (error) {
+      throw new Error(`排入缺失识别任务失败：${queueName}/${jobName}：${error.message}`);
+    } finally {
+      await queue.close();
+    }
+  }
+}
+
 async function main() {
   const config = await serverConfig();
 
@@ -142,6 +174,7 @@ async function main() {
   } finally {
     await db.end();
   }
+  await queueMissingJobs();
 }
 
 main().catch((error) => {

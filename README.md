@@ -24,6 +24,7 @@
 - 机器学习经出网从 Hugging Face 默认地址下载模型；要换地址只能改 compose。
   内存按上游要求最低 6G、推荐 8G；磁盘：搜索模型首次下载约 500 MB（visual + textual），缩略图、转码视频和
   索引库随照片数增长，都放插件数据目录，不占共享文件夹。
+- 每次启动由 bootstrap 补排智能搜索和人脸检测的“缺失”任务（`force: false`），只处理没有结果的照片，不重做已有结果；模型下载失败后配好出网代理，重启插件即可补跑。
 - Bot 按内容搜照片：本仓库的只读 MCP 服务（`images/immich-mcp/`）经核心的 MCP 总线给 Bot 一个
   `search_photos` 工具，按画面描述调 Immich 的 smart search，返回文件名、拍摄日期和缩略图。它只调 Immich 的
   读接口（搜索、缩略图、ping），不做任何写操作，工具标了只读（`readOnlyHint`），Bot 调用不需要用户确认。

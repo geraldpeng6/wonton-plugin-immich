@@ -104,8 +104,14 @@ services:
       DB_USERNAME: ${WONTON_SECRET_DB_USERNAME}
       DB_PASSWORD: ${WONTON_SECRET_DB_PASSWORD}
       DB_DATABASE_NAME: immich
+      REDIS_HOSTNAME: redis
     depends_on:
       server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # 补排任务会立即被 server 消费，先等推理服务就绪，避免再次丢掉缺失任务。
+      machine-learning:
         condition: service_healthy
     restart: "no"
 
@@ -144,10 +150,6 @@ services:
     volumes:
       # 模型缓存放插件数据目录；保留数据重装时不重下。
       - ${WONTON_APP_DATA}/model-cache:/cache
-    depends_on:
-      # 让核心把 bootstrap 当一次性服务：等它以 0 退出再启动机器学习。
-      bootstrap:
-        condition: service_completed_successfully
     healthcheck:
       # 镜像自带的 healthcheck.py 请求推理服务的 /ping，查的是服务真正可用。
       test: ["CMD", "python3", "healthcheck.py"]
