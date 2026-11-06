@@ -82,6 +82,8 @@ services:
 
   # 一次性服务：空库时建管理员；每次启动按用户名找到它、刷邮箱并补齐 onboard 标记（安装、升级、重建都会跑）。
   # 每次启动都核对 Bot 搜索服务的 Immich API key（文件和库里的行一致就跳过，否则重建，见 mcp 服务）。
+  # 每次启动补排“缺失”识别任务；智能搜索的模型变了（和 state/clip-rebuilt 标记比对）时改为排一次
+  # 全量重建（SmartSearchQueueAll force:true），记下模型名，重启不重复全量跑。
   bootstrap:
     image: *server
     # 不碰文件，按用户身份跑。
@@ -91,9 +93,14 @@ services:
       # 有 configs，不能 read_only（核心往根文件系统写文件）。
       - source: bootstrap
         target: /usr/src/app/bootstrap.cjs
+      # 和 server 同一份配置文件：读 machineLearning.clip.modelName，和已重建标记比对决定是否全量重建。
+      - source: immich-config
+        target: /usr/src/app/wonton-config.json
     volumes:
       # API key 写进插件数据目录自己的子目录，MCP 服务只读挂走（不嵌套别的挂载源）。
       - ${WONTON_APP_DATA}/mcp:/mcp-data
+      # 换模型全量重建的标记：记下已重建过的模型名，重启不重复全量跑。
+      - ${WONTON_APP_DATA}/state:/state
     environment:
       # 变量只用于插值，容器里要显式写上；核心不给（没声明 webui.sso）时安装失败并说明原因。
       # 值是建容器时的快照：用户改了邮箱，要升级或重装（可以不删数据）后新建的容器才拿到新值。
@@ -270,7 +277,7 @@ x-wonton:
       Originals go into the photos shared folder, where other apps can read them; thumbnails and transcoded videos are kept elsewhere.
 
       Bots can also find photos for you: describe the scene ("a sunset at the beach") and the bot searches the library by content, getting file names, dates and thumbnails.
-  release_notes: { zh: "智能搜索默认换多语言模型：中文也能按内容搜准照片。", en: "Smart search now defaults to a multilingual model, so Chinese queries find the right photos." }
+  release_notes: { zh: "智能搜索默认换多语言模型：中文也能按内容搜准照片；升级重启后会自动重建一次旧的搜索索引。", en: "Smart search now defaults to a multilingual model, so Chinese queries find the right photos; the old search index is rebuilt automatically once after upgrading." }
   webui:
     service: server
     port: 2283
