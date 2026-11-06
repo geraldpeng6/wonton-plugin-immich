@@ -206,7 +206,10 @@ configs:
   bootstrap:
     file: bootstrap/bootstrap.cjs
   immich-config:
-    # 只写 oauth 一节：设置文件里没写的键沿用默认值。
+    # 只写 oauth 和机器学习两节：设置文件里没写的键沿用默认值。
+    # clip.modelName 换成多语言模型（上游 docs 的中文检索 recall 表：SigLIP2 与 i18n 相当、英文更好，且
+    # 不依赖查询语言设置——Bot 的 search_photos 不传 language，nllb 系要靠它加语言前缀才能搜准中文）。
+    # 换模型后旧索引作废，bootstrap 会在模型变化时排一次全量重建（见 bootstrap.cjs）。
     # passwordLogin 打开是给局域网 App 的登录路径（lan.client 的账号就是它）；经网关的网页登录仍走 OIDC。
     # allowInsecureRequests 必须为 true：核心网关不做 TLS，签发方（auth.<基础域名>）和插件网页一样是 http，
     # openid-client 默认只收 https；换成 https 的部署时这项没有副作用。
@@ -230,6 +233,11 @@ configs:
         "storageTemplate": {
           "enabled": true,
           "template": "{{y}}/{{y}}-{{MM}}-{{dd}}/{{filename}}"
+        },
+        "machineLearning": {
+          "clip": {
+            "modelName": "ViT-B-16-SigLIP2__webli"
+          }
         }
       }
 
@@ -298,7 +306,8 @@ x-wonton:
     admin_password:
       generate: { bytes: 32 }
   # 多架构镜像；上游要求最低 6G 内存（https://docs.immich.app/install/requirements），推荐 8G。
-  # 机器学习（smart search 的索引）首次启动要下载约 500 MB 模型，索引库随照片数增长，放插件数据目录。
+  # 机器学习（smart search 的索引）首次启动要从 Hugging Face 下载约 1.5 GB 模型（落盘约 3.6 GB，含
+  # onnxruntime 的优化副本），索引库随照片数增长，放插件数据目录。
   # 局域网直连不经网关：App 在局域网里按用户身份调 Immich 自己的接口，权限由 Immich 的账号体系管。
   requirements:
     arch: [amd64, arm64]
