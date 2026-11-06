@@ -1,3 +1,5 @@
+# shellcheck shell=bash disable=SC2034
+
 # Immich：sso=oidc；清单没有 mcp。
 SSO=oidc
 MCP=0
