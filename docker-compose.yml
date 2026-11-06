@@ -244,7 +244,7 @@ configs:
 x-wonton:
   spec: "0.4"
   id: app.immich.immich
-  version: 0.2.0
+  version: 0.3.0
   kind: app
   title: { en: Immich }
   description: { zh: "备份手机里的照片和视频，按人脸和内容搜索", en: "Back up your photos and videos, search by face and content" }
@@ -270,7 +270,7 @@ x-wonton:
       Originals go into the photos shared folder, where other apps can read them; thumbnails and transcoded videos are kept elsewhere.
 
       Bots can also find photos for you: describe the scene ("a sunset at the beach") and the bot searches the library by content, getting file names, dates and thumbnails.
-  release_notes: { zh: Bot 能按画面内容搜照片了；局域网里的 Immich 官方 App 和第三方客户端也可以直连备份。, en: Bots can now search photos by content; the official Immich app and third-party clients on the LAN can also back up directly. }
+  release_notes: { zh: "智能搜索默认换多语言模型：中文也能按内容搜准照片。", en: "Smart search now defaults to a multilingual model, so Chinese queries find the right photos." }
   webui:
     service: server
     port: 2283
