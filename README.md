@@ -25,8 +25,8 @@
   内存按上游要求最低 6G、推荐 8G；磁盘：搜索模型首次下载约 500 MB（visual + textual），缩略图、转码视频和
   索引库随照片数增长，都放插件数据目录，不占共享文件夹。
 - Bot 按内容搜照片：本仓库的只读 MCP 服务（`images/immich-mcp/`）经核心的 MCP 总线给 Bot 一个
-  `search_photos` 工具，按画面描述调 Immich 的 smart search，返回文件名、拍摄日期和缩略图。它只调 Immich 的
-  读接口（搜索、缩略图、ping），不做任何写操作，工具标了只读（`readOnlyHint`），Bot 调用不需要用户确认。
+  `search_photos` 工具，按画面描述调 Immich 的 smart search，返回文件名、拍摄日期和缩略图，工具标了只读（`readOnlyHint`），Bot 调用不需要用户确认。
+  搜索失败以 `isError` 区分服务不可达和上游错误；仅 ML 的限时 `/predict` 探针明确报告模型加载失败时提示配置出网代理，不把通用 500 或超时当作模型下载状态，也不修改照片。
   凭据是 Immich API key（名字 `wonton-tools`），bootstrap 每次启动都核对：插件数据目录里的 token 文件和
   库里的行一致就跳过，否则删掉旧行、重建 key、重写文件——中途崩溃、用户在 Immich 里吊销、换了库，重启插件
   就恢复，不用动照片。权限只给搜索和缩略图要的 `asset.read`、`asset.view`（实测：搜索和缩略图可用，

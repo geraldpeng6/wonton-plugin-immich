@@ -64,11 +64,21 @@ impl SearchServer {
             return Err(McpError::invalid_params("query 不能为空", None));
         }
         let size = limit.unwrap_or(5).clamp(1, 20);
-        let client = self.client()?;
-        let assets = client
-            .smart_search(&query, size)
+        let client = match self.client() {
+            Ok(client) => client,
+            Err(error) => {
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
+                    error.to_string(),
+                )]));
+            }
+        };
+        let assets = match client
+            .smart_search(&query, size, "http://machine-learning:3003")
             .await
-            .map_err(api_error)?;
+        {
+            Ok(assets) => assets,
+            Err(error) => return Ok(api_error(error)),
+        };
         if assets.is_empty() {
             return Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                 "没有找到和“{query}”相关的照片。库里的照片要先经过 Immich 的机器学习建好索引，新上传的要等一会儿。"
@@ -98,8 +108,8 @@ impl SearchServer {
                 Ok(None) => missing += 1,
                 // 凭据失效必须整次失败（重启插件才能好）；Immich 别的错只影响那一张，
                 // 文字列表照常给，缺的算进“没带上”。
-                Err(error @ ApiError::Auth(_)) => return Err(api_error(error)),
-                Err(ApiError::Upstream(_)) => missing += 1,
+                Err(error @ ApiError::Auth(_)) => return Ok(api_error(error)),
+                Err(_) => missing += 1,
             }
         }
         let (chosen, skipped) = select_thumbnails(
@@ -138,9 +148,8 @@ fn select_thumbnails(sizes: &[usize], budget: usize) -> (Vec<usize>, usize) {
     (chosen, skipped)
 }
 
-/// 凭据失效和 Immich 出错都在错误文字里说清：前者重启插件就能好，后者要去 Immich 那边看。
-fn api_error(error: ApiError) -> McpError {
-    McpError::internal_error(error.to_string(), None)
+pub(crate) fn api_error(error: ApiError) -> CallToolResult {
+    CallToolResult::error(vec![ContentBlock::text(error.to_string())])
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -160,6 +169,26 @@ impl ServerHandler for SearchServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn upstream_failure_is_a_tool_result_not_a_protocol_error() {
+        use axum::{Router, http::StatusCode, routing::post};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new().route("/api/search/smart", post(|| async {
+            (StatusCode::UNAUTHORIZED, r#"{"message":"Invalid API key"}"#)
+        }));
+        let upstream = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let key = std::env::temp_dir().join(format!("immich-mcp-test-{}-{}", std::process::id(), address.port()));
+        std::fs::write(&key, "test-key").unwrap();
+        let server = SearchServer::new(format!("http://{address}"), key.clone());
+        let result = server.search_photos(Parameters(SearchPhotos {
+            query: "beach".into(), limit: Some(1),
+        })).await;
+        upstream.abort();
+        std::fs::remove_file(key).unwrap();
+        assert_eq!(result.unwrap().is_error, Some(true));
+    }
 
     #[test]
     fn thumbnails_within_budget_are_all_kept() {
@@ -188,13 +217,5 @@ mod tests {
         let (chosen, skipped) = select_thumbnails(&[700, 700], 100);
         assert!(chosen.is_empty());
         assert_eq!(skipped, 2);
-    }
-
-    #[test]
-    fn api_errors_render_distinctly() {
-        let auth = ApiError::Auth("Immich 的 API key 权限失效（/api/search/smart 返回 401）：重启插件会重建，再试一次".to_owned());
-        let upstream = ApiError::Upstream("Immich /api/search/smart 返回 500：x".to_owned());
-        assert!(auth.to_string().contains("重启插件会重建"));
-        assert!(!upstream.to_string().contains("重启插件"));
     }
 }
