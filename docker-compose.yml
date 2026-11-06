@@ -82,6 +82,8 @@ services:
 
   # 一次性服务：空库时建管理员；每次启动按用户名找到它、刷邮箱并补齐 onboard 标记（安装、升级、重建都会跑）。
   # 每次启动都核对 Bot 搜索服务的 Immich API key（文件和库里的行一致就跳过，否则重建，见 mcp 服务）。
+  # 每次启动补排“缺失”识别任务；智能搜索的模型变了（和 state/clip-rebuilt 标记比对）时改为排一次
+  # 全量重建（SmartSearchQueueAll force:true），记下模型名，重启不重复全量跑。
   bootstrap:
     image: *server
     # 不碰文件，按用户身份跑。
@@ -91,9 +93,14 @@ services:
       # 有 configs，不能 read_only（核心往根文件系统写文件）。
       - source: bootstrap
         target: /usr/src/app/bootstrap.cjs
+      # 和 server 同一份配置文件：读 machineLearning.clip.modelName，和已重建标记比对决定是否全量重建。
+      - source: immich-config
+        target: /usr/src/app/wonton-config.json
     volumes:
       # API key 写进插件数据目录自己的子目录，MCP 服务只读挂走（不嵌套别的挂载源）。
       - ${WONTON_APP_DATA}/mcp:/mcp-data
+      # 换模型全量重建的标记：记下已重建过的模型名，重启不重复全量跑。
+      - ${WONTON_APP_DATA}/state:/state
     environment:
       # 变量只用于插值，容器里要显式写上；核心不给（没声明 webui.sso）时安装失败并说明原因。
       # 值是建容器时的快照：用户改了邮箱，要升级或重装（可以不删数据）后新建的容器才拿到新值。
@@ -206,7 +213,10 @@ configs:
   bootstrap:
     file: bootstrap/bootstrap.cjs
   immich-config:
-    # 只写 oauth 一节：设置文件里没写的键沿用默认值。
+    # 只写 oauth 和机器学习两节：设置文件里没写的键沿用默认值。
+    # clip.modelName 换成多语言模型（上游 docs 的中文检索 recall 表：SigLIP2 与 i18n 相当、英文更好，且
+    # 不依赖查询语言设置——Bot 的 search_photos 不传 language，nllb 系要靠它加语言前缀才能搜准中文）。
+    # 换模型后旧索引作废，bootstrap 会在模型变化时排一次全量重建（见 bootstrap.cjs）。
     # passwordLogin 打开是给局域网 App 的登录路径（lan.client 的账号就是它）；经网关的网页登录仍走 OIDC。
     # allowInsecureRequests 必须为 true：核心网关不做 TLS，签发方（auth.<基础域名>）和插件网页一样是 http，
     # openid-client 默认只收 https；换成 https 的部署时这项没有副作用。
@@ -230,13 +240,18 @@ configs:
         "storageTemplate": {
           "enabled": true,
           "template": "{{y}}/{{y}}-{{MM}}-{{dd}}/{{filename}}"
+        },
+        "machineLearning": {
+          "clip": {
+            "modelName": "ViT-B-16-SigLIP2__webli"
+          }
         }
       }
 
 x-wonton:
   spec: "0.4"
   id: app.immich.immich
-  version: 0.2.0
+  version: 0.3.0
   kind: app
   title: { en: Immich }
   description: { zh: "备份手机里的照片和视频，按人脸和内容搜索", en: "Back up your photos and videos, search by face and content" }
@@ -262,7 +277,7 @@ x-wonton:
       Originals go into the photos shared folder, where other apps can read them; thumbnails and transcoded videos are kept elsewhere.
 
       Bots can also find photos for you: describe the scene ("a sunset at the beach") and the bot searches the library by content, getting file names, dates and thumbnails.
-  release_notes: { zh: Bot 能按画面内容搜照片了；局域网里的 Immich 官方 App 和第三方客户端也可以直连备份。, en: Bots can now search photos by content; the official Immich app and third-party clients on the LAN can also back up directly. }
+  release_notes: { zh: "智能搜索默认换多语言模型：中文也能按内容搜准照片；升级重启后会自动重建一次旧的搜索索引。", en: "Smart search now defaults to a multilingual model, so Chinese queries find the right photos; the old search index is rebuilt automatically once after upgrading." }
   webui:
     service: server
     port: 2283
@@ -298,7 +313,8 @@ x-wonton:
     admin_password:
       generate: { bytes: 32 }
   # 多架构镜像；上游要求最低 6G 内存（https://docs.immich.app/install/requirements），推荐 8G。
-  # 机器学习（smart search 的索引）首次启动要下载约 500 MB 模型，索引库随照片数增长，放插件数据目录。
+  # 机器学习（smart search 的索引）首次启动要从 Hugging Face 下载约 1.5 GB 模型（落盘约 3.6 GB，含
+  # onnxruntime 的优化副本），索引库随照片数增长，放插件数据目录。
   # 局域网直连不经网关：App 在局域网里按用户身份调 Immich 自己的接口，权限由 Immich 的账号体系管。
   requirements:
     arch: [amd64, arm64]

@@ -19,12 +19,21 @@
   取舍：密码登录在 Immich 里是全局开关，打开后经核心网关的网页登录仍由 OIDC 自动跳转接管，不受影响；
   不经网关直连 2283 的网页会自动跳去核心的登录页（局域网里到不了），Immich 内置了逃生参数，
   打开 `/auth/login?autoLaunch=0`（v3.3.5 源码）登录页才显示邮箱密码表单。不开开关时端口关闭，没有这条路径。
-- 设置在 compose 的 `immich-config` 里，经 `IMMICH_CONFIG_FILE` 交给 Immich：OAuth、密码登录、存储模板三组。
+- 设置在 compose 的 `immich-config` 里，经 `IMMICH_CONFIG_FILE` 交给 Immich：OAuth、密码登录、存储模板、
+  智能搜索模型四组。
   上游规定存在配置文件时管理界面只读；没写进配置的设置是 Immich 的默认值，在这里也改不了。
+- 智能搜索默认模型是 `ViT-B-16-SigLIP2__webli`：中文、英文都能按内容搜（上游 docs 的检索评测：
+  Crossmodal-3600 中文 recall 66.8%、英文 84.9%；v0.2.0 用的 `ViT-B-32__openai` 只认英文）。选它而不是
+  nllb 系列，是因为 nllb 要按查询语言加语言码才准，而 Bot 的 `search_photos` 不传语言（见下），上游 docs
+  也把这类模型归为“中英混搜”的推荐类。模型选择的数据见 PR。
 - 机器学习经出网从 Hugging Face 默认地址下载模型；要换地址只能改 compose。
-  内存按上游要求最低 6G、推荐 8G；磁盘：搜索模型首次下载约 500 MB（visual + textual），缩略图、转码视频和
+  内存按上游要求最低 6G、推荐 8G；磁盘：搜索模型首次下载约 1.5 GB（visual + textual，f32），落盘约 3.6 GB
+  （onnxruntime 加载时会在模型目录写一份硬件优化的副本），缩略图、转码视频和
   索引库随照片数增长，都放插件数据目录，不占共享文件夹。
 - 每次启动由 bootstrap 补排智能搜索和人脸检测的“缺失”任务（`force: false`），只处理没有结果的照片，不重做已有结果；模型下载失败后配好出网代理，重启插件即可补跑。
+- 换模型会作废旧索引：bootstrap 记下已全量重建过的智能搜索模型名（插件数据目录 state/clip-rebuilt），
+  启动时发现配置里的模型变了，就排一次全量重编码（`force: true`，管理页“全部”同款），重复启动不重复
+  全量跑；从 v0.2.0 升级后第一次启动会重建一次，向量维度的迁移由 Immich 在启动时自己完成。
 - Bot 按内容搜照片：本仓库的只读 MCP 服务（`images/immich-mcp/`）经核心的 MCP 总线给 Bot 一个
   `search_photos` 工具，按画面描述调 Immich 的 smart search，返回文件名、拍摄日期和缩略图。它只调 Immich 的
   读接口（搜索、缩略图、ping），不做任何写操作，工具标了只读（`readOnlyHint`），Bot 调用不需要用户确认。

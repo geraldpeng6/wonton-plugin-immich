@@ -18,6 +18,9 @@ const name = process.env.WONTON_OWNER_NAME;
 const email = process.env.WONTON_OWNER_EMAIL.toLowerCase();
 const keyFile = process.env.APIKEY_FILE || '/mcp-data/apikey';
 const keyName = 'wonton-tools';
+// 和 server 用同一份配置文件（compose 里挂到同一路径），marker 记下已全量重建过的智能搜索模型名。
+const configFile = '/usr/src/app/wonton-config.json';
+const markerFile = '/state/clip-rebuilt';
 // 搜索（POST /api/search/smart）和缩略图（GET /api/assets/{id}/thumbnail）的最低权限集合。
 const keyPermissions = ['asset.read', 'asset.view'];
 
@@ -111,13 +114,16 @@ async function reconcile(db, userId) {
 
 // 按 Immich v3.3.5 实测：queue.service.start 的“缺失”任务和 ConfigRepository 的 BullMQ 配置。
 // BullMQ 接受任意名字，先核对镜像内的枚举，避免升级后把任务静默放进没有消费者的队列。
-async function queueMissingJobs() {
+// 换了智能搜索模型时跳过 smartSearch 的缺失任务（skipSmartSearch）：旧嵌入已全部作废，
+// 缺失扫描只会把全库用新模型编一遍，紧接着的全量重建（force=true）又要再来一遍。
+async function queueMissingJobs(skipSmartSearch = false) {
   const { QueueName, JobName } = await import('/usr/src/app/server/dist/enum.js');
-  const jobs = [
+  const candidates = [
     ['SmartSearch', 'smartSearch', 'SmartSearchQueueAll'],
     ['FaceDetection', 'faceDetection', 'AssetDetectFacesQueueAll'],
   ];
-  for (const [queueKey, queueName, jobName] of jobs) {
+  const jobs = skipSmartSearch ? candidates.filter(([queueKey]) => queueKey !== 'SmartSearch') : candidates;
+  for (const [queueKey, queueName, jobName] of candidates) {
     if (QueueName[queueKey] !== queueName || JobName[jobName] !== jobName) {
       throw new Error(`Immich 内部任务定义不匹配（按 v3.3.5 验证）：${queueName}/${jobName}，请核对上游版本`);
     }
@@ -138,6 +144,44 @@ async function queueMissingJobs() {
       await queue.close();
     }
   }
+}
+
+// 换模型后旧嵌入全部作废：server 启动时已按新维度重建表或清空旧嵌入（smart-info.service.ts 的
+// init()），但全量重编码上游不自动跑（同文件注释明说 TODO）。这里排一次 SmartSearchQueueAll
+// {force: true}（管理页“全部”同款任务，它的 handler 还会再保底 setDimensionSize），并记下已重建的
+// 模型名：重复启动不重复全量跑。marker 在入队成功之后写——崩溃在窗口内最多多跑一次全量，不会漏跑。
+async function queueRebuildIfModelChanged() {
+  const configured = JSON.parse(fs.readFileSync(configFile, 'utf8'))?.machineLearning?.clip?.modelName;
+  if (!configured) {
+    throw new Error(`配置文件里读不到 machineLearning.clip.modelName：${configFile}`);
+  }
+  let rebuilt = null;
+  try {
+    rebuilt = fs.readFileSync(markerFile, 'utf8').trim();
+  } catch {
+    // 还没重建过任何模型（首次安装、或从没有重建标记的版本升级）
+  }
+  if (configured === rebuilt) {
+    console.log(`智能搜索模型未变（${configured}），不全量重建`);
+    return false;
+  }
+  const queue = new Queue('smartSearch', {
+    prefix: 'immich_bull',
+    connection: { host: process.env.REDIS_HOSTNAME, connectTimeout: 10000, retryStrategy: null },
+    defaultJobOptions: { attempts: 1, removeOnComplete: true, removeOnFail: false },
+  });
+  queue.on('error', (error) => console.error(`Redis 队列 smartSearch 出错：${error.message}`));
+  try {
+    await queue.add('SmartSearchQueueAll', { force: true });
+    console.log(`智能搜索模型变为 ${configured}（上次全量重建：${rebuilt ?? '无'}），已排入全量重建`);
+  } catch (error) {
+    throw new Error(`排入智能搜索全量重建失败：smartSearch/SmartSearchQueueAll：${error.message}`);
+  } finally {
+    await queue.close();
+  }
+  fs.mkdirSync(path.dirname(markerFile), { recursive: true });
+  fs.writeFileSync(markerFile, `${configured}\n`);
+  return true;
 }
 
 async function main() {
@@ -174,7 +218,8 @@ async function main() {
   } finally {
     await db.end();
   }
-  await queueMissingJobs();
+  const modelChanged = await queueRebuildIfModelChanged();
+  await queueMissingJobs(modelChanged);
 }
 
 main().catch((error) => {
