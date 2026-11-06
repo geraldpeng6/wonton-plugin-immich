@@ -14,8 +14,8 @@
 # 要改这些设置得改这里的配置节。
 services:
   server:
-    # 上游官方镜像，按 v3.3.5 官方 compose 的版本组合固定（license: AGPL-3.0-only）。
-    image: ghcr.io/immich-app/immich-server:v3.3.5@sha256:485d546a2e31d6a8b4db8423fcba5c109de8c218d93410af115fd1ccfc4352a6
+    # 上游官方镜像，按 v3.3.6 官方 compose 的版本组合固定（license: AGPL-3.0-only）。
+    image: ghcr.io/immich-app/immich-server:v3.3.6@sha256:e1981983b1c13f6024b57d72e7ecae3342eed1581201ab09fb248932d86c593a
     # 以用户身份运行：共享文件夹里写下的文件归用户，数据目录也按 PUID:PGID 交给它。
     user: "${PUID}:${PGID}"
     environment:
@@ -59,7 +59,7 @@ services:
   # 一次性服务：Immich 要求每个媒体子目录里有 .immich 标记才能启动，数据目录里的挂载是空的，先补齐。
   # 必须在 server 启动前跑完，所以 server 依赖它；它自己不需要网络。
   prepare:
-    image: ghcr.io/immich-app/immich-server:v3.3.5@sha256:485d546a2e31d6a8b4db8423fcba5c109de8c218d93410af115fd1ccfc4352a6
+    image: ghcr.io/immich-app/immich-server:v3.3.6@sha256:e1981983b1c13f6024b57d72e7ecae3342eed1581201ab09fb248932d86c593a
     entrypoint:
       - /bin/sh
       - -ec
@@ -85,7 +85,7 @@ services:
   # 每次启动补排“缺失”识别任务；智能搜索的模型变了（和 state/clip-rebuilt 标记比对）时改为排一次
   # 全量重建（SmartSearchQueueAll force:true），记下模型名，重启不重复全量跑。
   bootstrap:
-    image: ghcr.io/immich-app/immich-server:v3.3.5@sha256:485d546a2e31d6a8b4db8423fcba5c109de8c218d93410af115fd1ccfc4352a6
+    image: ghcr.io/immich-app/immich-server:v3.3.6@sha256:e1981983b1c13f6024b57d72e7ecae3342eed1581201ab09fb248932d86c593a
     # 不碰文件，按用户身份跑。
     user: "${PUID}:${PGID}"
     entrypoint: ["node", "/usr/src/app/bootstrap.cjs"]
@@ -149,7 +149,7 @@ services:
 
   machine-learning:
     # CPU 版。清单不申请显卡：只有一个 CPU 镜像，申请了就会把设备交进来却用不上；显卡版另开 PR。
-    image: ghcr.io/immich-app/immich-machine-learning:v3.3.5@sha256:5b28c9352c8374b8a1ed96fbdd8d6755fea6e43510ec43fdf6538aa02ea40f56
+    image: ghcr.io/immich-app/immich-machine-learning:v3.3.6@sha256:14367bfb374b8576ddf49abd67c5ca0190a4c7fcf6303cdad65d7f7bf1a50bc2
     user: "${PUID}:${PGID}"
     environment:
       TZ: ${TZ}
@@ -251,7 +251,7 @@ configs:
 x-wonton:
   spec: "0.4"
   id: app.immich.immich
-  version: 0.3.0
+  version: 0.3.1
   kind: app
   title: { en: Immich }
   description: { zh: "备份手机里的照片和视频，按人脸和内容搜索", en: "Back up your photos and videos, search by face and content" }
@@ -277,7 +277,7 @@ x-wonton:
       Originals go into the photos shared folder, where other apps can read them; thumbnails and transcoded videos are kept elsewhere.
 
       Bots can also find photos for you: describe the scene ("a sunset at the beach") and the bot searches the library by content, getting file names, dates and thumbnails.
-  release_notes: { zh: "智能搜索默认换多语言模型：中文也能按内容搜准照片；升级重启后会自动重建一次旧的搜索索引。", en: "Smart search now defaults to a multilingual model, so Chinese queries find the right photos; the old search index is rebuilt automatically once after upgrading." }
+  release_notes: { zh: "升级到上游 v3.3.6：机器学习容器不再向 Microsoft 发送匿名指标（上游此前的 onnxruntime 遥测已关闭）。", en: "Upgraded to upstream v3.3.6: the machine-learning container no longer sends anonymous metrics to Microsoft (upstream disabled the onnxruntime telemetry it had enabled by default)." }
   webui:
     service: server
     port: 2283
