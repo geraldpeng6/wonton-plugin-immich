@@ -149,7 +149,7 @@ services:
 
   machine-learning:
     # CPU 版。清单不申请显卡：只有一个 CPU 镜像，申请了就会把设备交进来却用不上；显卡版另开 PR。
-    image: ghcr.io/immich-app/immich-machine-learning:v3.3.5@sha256:5b28c9352c8374b8a1ed96fbdd8d6755fea6e43510ec43fdf6538aa02ea40f56
+    image: ghcr.io/immich-app/immich-machine-learning:v3.3.6@sha256:14367bfb374b8576ddf49abd67c5ca0190a4c7fcf6303cdad65d7f7bf1a50bc2
     user: "${PUID}:${PGID}"
     environment:
       TZ: ${TZ}
