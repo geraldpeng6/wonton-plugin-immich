@@ -9,9 +9,12 @@ web_assert() { grep -qi 'immich'; }   # 标准输入：应用真实页面
 # Bot 的 search_photos：装好后 ML 容器要先下载模型，第一次调用可能还没就绪；在窗口内重试，
 # 空库返回“没有找到…”也算通过，工具真报错才算失败。
 mcp_check() {
-  local out i
+  local out i url=() slug="${SMOKE_SLUG:-${E2E_SLUG:-}}"
+  # 插件的 smoke.sh 里 mcp() 自带总线地址；e2e 的 mcp() 要去显式给（E2E_MCP_URL）。
+  [[ -n "$slug" ]] || { echo "没有插件 slug（SMOKE_SLUG/E2E_SLUG）"; return 1; }
+  if [[ -n "${E2E_MCP_URL:-}" ]]; then url=("$E2E_MCP_URL"); fi
   for i in $(seq 1 20); do
-    out="$(mcp call "${SMOKE_SLUG}__search_photos" '{"query":"photo","limit":3}')" || { sleep 30; continue; }
+    out="$(mcp call "${url[@]}" "${slug}__search_photos" '{"query":"photo","limit":3}')" || { sleep 30; continue; }
     grep -qE '找到|没有找到' <<<"$out" && return 0
     sleep 30
   done
