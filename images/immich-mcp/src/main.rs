@@ -2,7 +2,9 @@
 
 use std::process::ExitCode;
 
-use wonton_immich_mcp::{SearchServer, apikey_path, healthcheck, immich_base, port_from_env, serve};
+use wonton_immich_mcp::{
+    SearchServer, apikey_path, healthcheck, immich_base, port_from_env, serve,
+};
 
 #[tokio::main]
 async fn main() -> ExitCode {

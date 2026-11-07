@@ -65,7 +65,9 @@ impl Client {
             .header("x-api-key", &self.apikey)
             .send()
             .await
-            .map_err(|e| ApiError::Upstream(format!("请求 Immich {path} 失败：{}", error_chain(&e))))
+            .map_err(|e| {
+                ApiError::Upstream(format!("请求 Immich {path} 失败：{}", error_chain(&e)))
+            })
     }
 
     async fn post_json(
@@ -88,7 +90,10 @@ impl Client {
             .await
             .map_err(|e| format!("请求 Immich /api/server/ping 失败：{}", error_chain(&e)))?;
         if !response.status().is_success() {
-            return Err(format!("Immich /api/server/ping 返回 {}", response.status()));
+            return Err(format!(
+                "Immich /api/server/ping 返回 {}",
+                response.status()
+            ));
         }
         Ok(())
     }
@@ -176,10 +181,9 @@ impl Client {
             return Ok(None);
         }
         let status = response.status();
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| ApiError::Upstream(format!("读 Immich 缩略图 {id} 失败：{}", error_chain(&e))))?;
+        let bytes = response.bytes().await.map_err(|e| {
+            ApiError::Upstream(format!("读 Immich 缩略图 {id} 失败：{}", error_chain(&e)))
+        })?;
         Self::check_status(status, &format!("/api/assets/{id}/thumbnail"), "")?;
         let mime = headers_mime(&bytes);
         Ok(Some((bytes.to_vec(), mime)))
@@ -300,7 +304,12 @@ mod tests {
 
     #[test]
     fn rejects_unrecognized_shape() {
-        for value in [json!({}), json!({"assets": {}}), json!({"items": []}), json!({"assets": {"items": 3}})] {
+        for value in [
+            json!({}),
+            json!({"assets": {}}),
+            json!({"items": []}),
+            json!({"assets": {"items": 3}}),
+        ] {
             parse_assets(&value).expect_err("认不出的结构要报错");
         }
     }

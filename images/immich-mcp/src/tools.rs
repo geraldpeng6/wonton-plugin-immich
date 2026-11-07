@@ -6,8 +6,8 @@ use base64::Engine;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, ServerCapabilities, ServerConfig};
-use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router};
 use rmcp::schemars;
+use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router};
 use serde::Deserialize;
 
 use crate::immich::{self, ApiError, Client};
@@ -113,7 +113,10 @@ impl SearchServer {
             }
         }
         let (chosen, skipped) = select_thumbnails(
-            &fetched.iter().map(|(bytes, _)| bytes.len()).collect::<Vec<_>>(),
+            &fetched
+                .iter()
+                .map(|(bytes, _)| bytes.len())
+                .collect::<Vec<_>>(),
             THUMBNAIL_BUDGET_BYTES,
         );
         for index in chosen {
@@ -175,16 +178,24 @@ mod tests {
         use axum::{Router, http::StatusCode, routing::post};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let app = Router::new().route("/api/search/smart", post(|| async {
-            (StatusCode::UNAUTHORIZED, r#"{"message":"Invalid API key"}"#)
-        }));
+        let app = Router::new().route(
+            "/api/search/smart",
+            post(|| async { (StatusCode::UNAUTHORIZED, r#"{"message":"Invalid API key"}"#) }),
+        );
         let upstream = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let key = std::env::temp_dir().join(format!("immich-mcp-test-{}-{}", std::process::id(), address.port()));
+        let key = std::env::temp_dir().join(format!(
+            "immich-mcp-test-{}-{}",
+            std::process::id(),
+            address.port()
+        ));
         std::fs::write(&key, "test-key").unwrap();
         let server = SearchServer::new(format!("http://{address}"), key.clone());
-        let result = server.search_photos(Parameters(SearchPhotos {
-            query: "beach".into(), limit: Some(1),
-        })).await;
+        let result = server
+            .search_photos(Parameters(SearchPhotos {
+                query: "beach".into(),
+                limit: Some(1),
+            }))
+            .await;
         upstream.abort();
         std::fs::remove_file(key).unwrap();
         assert_eq!(result.unwrap().is_error, Some(true));
