@@ -112,7 +112,7 @@ async function reconcile(db, userId) {
   }
 }
 
-// 按 Immich v3.3.5 实测：queue.service.start 的“缺失”任务和 ConfigRepository 的 BullMQ 配置。
+// 按 Immich v3.3.6 实测：queue.service.start 的“缺失”任务和 ConfigRepository 的 BullMQ 配置。
 // BullMQ 接受任意名字，先核对镜像内的枚举，避免升级后把任务静默放进没有消费者的队列。
 // 换了智能搜索模型时跳过 smartSearch 的缺失任务（skipSmartSearch）：旧嵌入已全部作废，
 // 缺失扫描只会把全库用新模型编一遍，紧接着的全量重建（force=true）又要再来一遍。
@@ -125,7 +125,7 @@ async function queueMissingJobs(skipSmartSearch = false) {
   const jobs = skipSmartSearch ? candidates.filter(([queueKey]) => queueKey !== 'SmartSearch') : candidates;
   for (const [queueKey, queueName, jobName] of candidates) {
     if (QueueName[queueKey] !== queueName || JobName[jobName] !== jobName) {
-      throw new Error(`Immich 内部任务定义不匹配（按 v3.3.5 验证）：${queueName}/${jobName}，请核对上游版本`);
+      throw new Error(`Immich 内部任务定义不匹配（按 v3.3.6 验证）：${queueName}/${jobName}，请核对上游版本`);
     }
   }
   for (const [, queueName, jobName] of jobs) {
