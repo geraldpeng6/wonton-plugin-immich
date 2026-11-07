@@ -52,17 +52,19 @@ identity_check() {
 smoke_base_url() { printf '%s' "${E2E_BASE:-${SMOKE_BASE:-}}"; }
 smoke_token() { printf '%s' "${E2E_TOKEN:-${SMOKE_TOKEN:-}}"; }
 
-smoke_core_login() { # <jar>：拿核心会话 Cookie（网关只认它）
-  curl -sS --noproxy '*' -o /dev/null -c "$1" \
-    --data-urlencode "token=$(smoke_token)" "$(smoke_base_url)/_wonton/login"
+smoke_core_login() { # <jar> <base>：核心登录，再走一次插件的登录跳转——网关的会话 Cookie 要落在插件主机上，OAuth 端点才认
+  curl -sS --noproxy '*' -o /dev/null -b "$1" -c "$1" \
+    --data-urlencode "token=$(smoke_token)" "$(smoke_base_url)/_wonton/login" &&
+    curl -sS --noproxy '*' -o /dev/null -L -b "$1" -c "$1" -H 'Accept: text/html' "${2%/}/"
 }
 
 smoke_web_url() { # <插件 id>：从核心 API 查插件 web_url，剥到 scheme://host（应用都在根路径）
-  local list
+  local list url
   list="$(curl -sS --noproxy '*' --fail-with-body -H "Authorization: Bearer $(smoke_token)" \
     "$(smoke_base_url)/_wonton/api/plugins")" || return 1
-  jq -rn --arg id "$1" --arg json "$list" \
-    '$json | fromjson | .plugins[] | select(.id==$id) | .web_url // ""' | sed -E 's#^(https?://[^/]+).*#\1#'
+  url="$(jq -er --arg id "$1" --arg json "$list" \
+    '$json | fromjson | .plugins[] | select(.id==$id) | .web_url // empty' <<<"$list")" || return 1
+  sed -E 's#^(https?://[^/]+).*#\1#' <<<"$url"
 }
 
 smoke_marker() { # <名字>：标记文件路径（SMOKE_STATE 是文件不是目录，标记放同名的 .d 目录里）
@@ -109,7 +111,7 @@ data_write() { # 走 OAuth 拿会话，上传一张带标记的 1x1 PNG，记下
   local jar base marker png out id
   jar="${E2E_JAR:-${SMOKE_JAR:-}}"
   base="$(smoke_app_url)" || return 1
-  smoke_core_login "$jar" || { echo "核心会话建不了"; return 1; }
+  smoke_core_login "$jar" "$base" || { echo "核心会话建不了"; return 1; }
   immich_login "$jar" "$base" || return 1
   marker="wonton-smoke-$(head -c12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   png="$(smoke_marker immich-asset.png)"
@@ -136,7 +138,7 @@ data_check() { # 升级/重装后读回资产：GET /api/assets/{id}，originalF
   me="$(curl -sS --noproxy '*' -b "$jar" -H 'Accept: application/json' "$base/api/assets/$id")"
   if ! jq -e --arg m "$marker" '.originalFileName == $m + ".png"' <<<"$me" >/dev/null 2>&1; then
     # 会话可能因重装失效：重走一遍 OAuth 再试一次
-    smoke_core_login "$jar" || { echo "核心会话建不了"; return 1; }
+    smoke_core_login "$jar" "$base" || { echo "核心会话建不了"; return 1; }
     immich_login "$jar" "$base" || return 1
     me="$(curl -sS --noproxy '*' --fail-with-body -b "$jar" -H 'Accept: application/json' "$base/api/assets/$id")" ||
       { echo "读资产失败：$me"; return 1; }
