@@ -5,3 +5,8 @@ updates:
     directory: /
     schedule:
       interval: daily
+    # 数据库跨大版本会让旧数据目录起不来：immich 的 postgres 镜像标签里带着 pg 大版本和向量扩展版本，
+    # 大版本要按上游指南手动迁移，不让 Dependabot 自动开。
+    ignore:
+      - dependency-name: immich-app/postgres
+        update-types: ["version-update:semver-major"]
