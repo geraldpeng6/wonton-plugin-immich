@@ -17,9 +17,14 @@ OIDC。
   取舍：密码登录在 Immich 里是全局开关，打开后经核心网关的网页登录仍由 OIDC 自动跳转接管，不受影响；
   不经网关直连 2283 的网页会自动跳去核心的登录页（局域网里到不了），Immich 内置了逃生参数，
   打开 `/auth/login?autoLaunch=0`（v3.3.6 源码）登录页才显示邮箱密码表单。不开开关时端口关闭，没有这条路径。
-- 设置在 compose 的 `immich-config` 里，经 `IMMICH_CONFIG_FILE` 交给 Immich：OAuth、密码登录、存储模板、
-  智能搜索模型四组。
+- 设置在 compose 的 `immich-config` 里，经 `IMMICH_CONFIG_FILE` 交给 Immich：OAuth、密码登录、存储模板、邮件发送、
+  智能搜索模型五组。
   上游规定存在配置文件时管理界面只读；没写进配置的设置是 Immich 的默认值，在这里也改不了。
+- 应用发的信走云吞的内部邮箱（`notify` 权限）：新用户欢迎信、共享相册的邀请和更新转进收件人的 Wonton 私聊。
+  SMTP 写死在 `immich-config` 里：核心的 SMTP 不认证不加密，Immich 不填用户名密码就不发 AUTH（上游
+  email.repository.ts 的 createTransport），`from` 用核心给的 `WONTON_MAIL_FROM`。
+  收件人只能是家里人：共享相册本来就只在家用账号之间分享；给外部邮箱建用户这类操作，欢迎信在 SMTP 阶段
+  被核心拒收（550），Immich 报发送失败，账号本身建得起来。
 - 智能搜索默认模型是 `ViT-B-16-SigLIP2__webli`：中文、英文都能按内容搜（上游 docs 的检索评测：
   Crossmodal-3600 中文 recall 66.8%、英文 84.9%；v0.2.0 用的 `ViT-B-32__openai` 只认英文）。选它而不是
   nllb 系列，是因为 nllb 要按查询语言加语言码才准，而 Bot 的 `search_photos` 不传语言（见下），上游 docs

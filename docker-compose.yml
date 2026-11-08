@@ -12,6 +12,9 @@
 #
 # 设置界面：OAuth 等设置由 IMMICH_CONFIG_FILE 指向的配置文件固定，Immich 管理界面因此整体只读（上游行为）；
 # 要改这些设置得改这里的配置节。
+#
+# 应用发的信（新用户欢迎、共享相册邀请和更新）：notify 权限换来核心的 SMTP 三变量，写死在配置节里；
+# 信转进收件人的 Wonton 私聊，外部收件人在 SMTP 阶段被拒收。
 services:
   server:
     # 上游官方镜像，按 v3.3.6 官方 compose 的版本组合固定（license: AGPL-3.0-only）。
@@ -27,6 +30,12 @@ services:
       REDIS_HOSTNAME: redis
       # 服务名是 machine-learning，上游默认的 immich-machine-learning 在云吞里解析不到。
       IMMICH_MACHINE_LEARNING_URL: http://machine-learning:3003
+      # SMTP 只经上面的配置文件交给 Immich（上游没有 SMTP 环境变量），这里显式写上是为了装得上的前提：
+      # 核心没给（没申请 notify）就在安装时报清楚原因，而不是把空值或 ${WONTON_SMTP_*} 原样写进配置文件、
+      # 等发信才失败。
+      WONTON_SMTP_HOST: ${WONTON_SMTP_HOST:?核心没有注入 SMTP 服务器地址}
+      WONTON_SMTP_PORT: ${WONTON_SMTP_PORT:?核心没有注入 SMTP 端口}
+      WONTON_MAIL_FROM: ${WONTON_MAIL_FROM:?核心没有注入发件地址}
       # 媒体根放在插件数据目录（upload/thumbs/encoded-video/profile/backups 都跟着它），只把 library 换成共享文件夹。
       IMMICH_MEDIA_LOCATION: /data
       TZ: ${TZ}
@@ -102,7 +111,7 @@ services:
       # 换模型全量重建的标记：记下已重建过的模型名，重启不重复全量跑。
       - ${WONTON_APP_DATA}/state:/state
     environment:
-      # 变量只用于插值，容器里要显式写上；核心不给（没声明 webui.sso）时安装失败并说明原因。
+      # 变量只用于插值，容器里要显式写上；核心不给（没申请 owner.identity）时安装失败并说明原因。
       # 值是建容器时的快照：用户改了邮箱，要升级或重装（可以不删数据）后新建的容器才拿到新值。
       WONTON_OWNER_NAME: ${WONTON_OWNER_NAME:?核心没有注入用户名字}
       WONTON_OWNER_EMAIL: ${WONTON_OWNER_EMAIL:?核心没有注入用户邮箱}
@@ -213,7 +222,12 @@ configs:
   bootstrap:
     file: bootstrap/bootstrap.cjs
   immich-config:
-    # 只写 oauth 和机器学习两节：设置文件里没写的键沿用默认值。
+    # 只写 oauth、notifications 的 SMTP、机器学习三节：设置文件里没写的键沿用默认值。
+    # notifications.smtp：应用发的信（新用户欢迎、共享相册邀请和更新）经核心的 SMTP 转进收件人的 Wonton
+    # 私聊。核心的 SMTP 不认证不加密：`secure` 保持默认 false，`username`/`password` 留默认空值——Immich
+    # 只在两者非空时才发 AUTH（上游 email.repository.ts 的 createTransport）；核心不宣告 STARTTLS，不会
+    # 升级加密。replyTo 留默认空值，上游发送时回退为 from。管理界面只读，用户改不了这里的开关。
+    # 收件人只能是家里人：给外部邮箱建用户、发欢迎信这类操作在 SMTP 阶段被核心拒收（550），Immich 报发送失败。
     # clip.modelName 换成多语言模型（上游 docs 的中文检索 recall 表：SigLIP2 与 i18n 相当、英文更好，且
     # 不依赖查询语言设置——Bot 的 search_photos 不传 language，nllb 系要靠它加语言前缀才能搜准中文）。
     # 换模型后旧索引作废，bootstrap 会在模型变化时排一次全量重建（见 bootstrap.cjs）。
@@ -245,13 +259,24 @@ configs:
           "clip": {
             "modelName": "ViT-B-16-SigLIP2__webli"
           }
+        },
+        "notifications": {
+          "smtp": {
+            "enabled": true,
+            "from": "${WONTON_MAIL_FROM}",
+            "transport": {
+              "host": "${WONTON_SMTP_HOST}",
+              "port": ${WONTON_SMTP_PORT},
+              "secure": false
+            }
+          }
         }
       }
 
 x-wonton:
-  spec: "0.4"
+  spec: "0.11"
   id: app.immich.immich
-  version: 0.3.4
+  version: 0.3.5
   kind: app
   title: { en: Immich }
   description: { zh: "备份手机里的照片和视频，按人脸和内容搜索", en: "Back up your photos and videos, search by face and content" }
@@ -273,6 +298,8 @@ x-wonton:
       Bot 也能帮你找照片：问它“找海滩上的日落”这类画面描述，它按内容在照片库里搜，拿到文件名、日期和缩略图。
 
       核心升级后，插件容器会按新的签发方自动重建，打开照常，不用重装。
+
+      应用发的信（新用户欢迎、共享相册的邀请和更新）会出现在收件人的 Wonton 私聊里；收件人只能是家里人，给外部邮箱建用户发欢迎信会失败。
     en: |
       Photos and videos are backed up from your phone to your server; browse the timeline, albums and search by face or content in the web page.
 
@@ -281,7 +308,9 @@ x-wonton:
       Bots can also find photos for you: describe the scene ("a sunset at the beach") and the bot searches the library by content, getting file names, dates and thumbnails.
 
       After a core upgrade the plugin's containers are rebuilt with the new issuer automatically; pages open as before, with nothing to reinstall.
-  release_notes: { zh: "Bot 搜照片失败时给准原因：区分 Immich 没起来、搜索超时、识别模型没加载出来，各给对应的下一步；搜索超时不再报成协议错误。", en: "Bot photo search failures now name the actual cause — Immich not ready, search timed out, or the recognition model failed to load — each with the matching next step; search timeouts no longer surface as protocol errors." }
+
+      Emails the app sends (welcome mail for new users, shared-album invites and updates) arrive in the recipient's Wonton chat; only household members can receive them — creating a user with an outside address fails to send its welcome mail.
+  release_notes: { zh: "应用发的信接进云吞：新用户欢迎信、共享相册的邀请和更新转进收件人的 Wonton 私聊；收件人是外部地址时发不出去，Immich 会报发送失败。", en: "Emails the app sends now arrive in Wonton: welcome mail for new users and shared-album invites and updates land in the recipient's Wonton chat; mail to outside addresses fails to send, and Immich reports the failure." }
   webui:
     service: server
     port: 2283
@@ -308,6 +337,7 @@ x-wonton:
     - storage.share.photos:write
     - network.egress
     - owner.identity
+    - notify
     - network.lan
   secrets:
     db_username:
