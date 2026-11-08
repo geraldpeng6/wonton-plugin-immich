@@ -32,3 +32,4 @@ features = ["json"]
 strip = true
 panic = "abort"
 # 冒烟验证 CI 用（分支即删）
+# 第二次冒烟验证（分支即删）
