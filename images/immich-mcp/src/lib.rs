@@ -60,7 +60,9 @@ pub async fn serve(server: SearchServer, port: u16) -> std::io::Result<()> {
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
     let shutdown = shutdown(cancellation);
-    axum::serve(listener, app).with_graceful_shutdown(shutdown).await
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await
 }
 
 pub fn app(server: SearchServer, config: StreamableHttpServerConfig) -> Router {

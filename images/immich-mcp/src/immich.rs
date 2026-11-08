@@ -1,14 +1,20 @@
-//! Immich API 的最小客户端：只发请求，不做重试和缓存，错误原样带状态码交上去。
+//! Immich API 的最小客户端：不重试、不缓存；搜索失败时只凭明确的上游响应诊断。
 
 use std::path::Path;
 
 const USER_AGENT: &str = concat!("wonton-immich-mcp/", env!("CARGO_PKG_VERSION"));
+// compose 固定 v3.3.5，配置文件只读且没有覆盖默认 CLIP 模型；失败探针必须和搜索用同一模型。
+// 上游依据：server/src/dtos/config.dto.ts:627-630、machine-learning/immich_ml/main.py:224-229。
+const CLIP_PROBE: &str = r#"{"clip":{"textual":{"modelName":"ViT-B-32__openai"}}}"#;
+const MODEL_LOAD_FAILURE: &str = "Failed to load model 'ViT-B-32__openai'";
 
 #[derive(Debug, Clone)]
 pub enum ApiError {
     /// Immich 认了请求但拒绝这把 key（401/403）：权限失效，重启插件会重建。
     Auth(String),
-    /// Immich 不可达或返回了别的错误。
+    ModelUnavailable,
+    NotReady,
+    /// 没有足够依据诊断时保留状态码和上游原话。
     Upstream(String),
 }
 
@@ -18,7 +24,9 @@ impl core::fmt::Display for ApiError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ApiError::Auth(message) => write!(f, "{message}"),
-            ApiError::Upstream(message) => write!(f, "{message}"),
+            ApiError::ModelUnavailable => f.write_str("识别模型没能加载，按内容搜不了；主机连不上模型下载地址的，在云吞 App 的“连接 → 出网代理”里配上代理。配好代理后插件会重启，Immich 会自己补上旧照片的识别。"),
+            ApiError::NotReady => f.write_str("Immich 还没起来，按内容搜不了；请稍后重试。"),
+            ApiError::Upstream(message) => write!(f, "Immich 出错，按内容搜不了（{message}）；请稍后重试，持续失败请查看 Immich 日志。"),
         }
     }
 }
@@ -57,21 +65,22 @@ impl Client {
             .header("x-api-key", &self.apikey)
             .send()
             .await
-            .map_err(|e| ApiError::Upstream(format!("请求 Immich {path} 失败：{}", error_chain(&e))))
+            .map_err(|e| {
+                ApiError::Upstream(format!("请求 Immich {path} 失败：{}", error_chain(&e)))
+            })
     }
 
     async fn post_json(
         &self,
         path: &str,
         body: &serde_json::Value,
-    ) -> Result<reqwest::Response, ApiError> {
+    ) -> Result<reqwest::Response, reqwest::Error> {
         self.http
             .post(format!("{}{path}", self.base))
             .header("x-api-key", &self.apikey)
             .json(body)
             .send()
             .await
-            .map_err(|e| ApiError::Upstream(format!("请求 Immich {path} 失败：{}", error_chain(&e))))
     }
 
     /// Immich 起没起来，健康检查只看这个。
@@ -81,7 +90,10 @@ impl Client {
             .await
             .map_err(|e| format!("请求 Immich /api/server/ping 失败：{}", error_chain(&e)))?;
         if !response.status().is_success() {
-            return Err(format!("Immich /api/server/ping 返回 {}", response.status()));
+            return Err(format!(
+                "Immich /api/server/ping 返回 {}",
+                response.status()
+            ));
         }
         Ok(())
     }
@@ -103,18 +115,61 @@ impl Client {
     }
 
     /// smart search：按自然语言搜照片（Immich 的机器学习服务给的语义搜索）。
-    pub async fn smart_search(&self, query: &str, size: u32) -> Result<Vec<AssetSummary>, ApiError> {
+    pub async fn smart_search(
+        &self,
+        query: &str,
+        size: u32,
+        machine_learning_base: &str,
+    ) -> Result<Vec<AssetSummary>, ApiError> {
         let body = serde_json::json!({ "query": query, "size": size, "withDeleted": false });
-        let response = self.post_json("/api/search/smart", &body).await?;
-        let status = response.status();
-        let text = response
-            .text()
+        let response = self
+            .post_json("/api/search/smart", &body)
             .await
-            .map_err(|e| ApiError::Upstream(format!("读 Immich 搜索响应失败：{}", error_chain(&e))))?;
-        Self::check_status(status, "/api/search/smart", &text)?;
-        let value: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| ApiError::Upstream(format!("Immich 搜索响应不是 JSON：{e}；{}", truncate(&text, 160))))?;
-        parse_assets(&value)
+            .map_err(search_transport_error)?;
+        let status = response.status();
+        let text = response.text().await.map_err(|e| {
+            ApiError::Upstream(format!(
+                "HTTP {status}，读取搜索响应失败：{}",
+                error_chain(&e)
+            ))
+        })?;
+        if let Err(error) = Self::check_status(status, "/api/search/smart", &text) {
+            if status.is_server_error()
+                && self.model_load_failed(machine_learning_base, query).await
+            {
+                return Err(ApiError::ModelUnavailable);
+            }
+            return Err(error);
+        }
+        let parsed = serde_json::from_str(&text)
+            .map_err(|e| format!("搜索响应不是 JSON：{e}"))
+            .and_then(|value| parse_assets(&value));
+        parsed.map_err(|reason| {
+            ApiError::Upstream(format!(
+                "HTTP {status}，{reason}；原话：{}",
+                truncate(&text, 160)
+            ))
+        })
+    }
+
+    async fn model_load_failed(&self, base: &str, query: &str) -> bool {
+        // /ping 不检查模型；/predict 的通用 500 和超时都不能证明模型未加载。
+        // 只诊断失败请求，不把探针的推理输出当成搜索结果，也不向 ML 发送 API key。
+        let response = self
+            .http
+            .post(format!("{base}/predict"))
+            .timeout(std::time::Duration::from_secs(3))
+            .form(&[("entries", CLIP_PROBE), ("text", query)])
+            .send()
+            .await;
+        let Ok(response) = response else { return false };
+        if response.status() != reqwest::StatusCode::INTERNAL_SERVER_ERROR {
+            return false;
+        }
+        let Ok(value) = response.json::<serde_json::Value>().await else {
+            return false;
+        };
+        value.get("detail").and_then(|detail| detail.as_str()) == Some(MODEL_LOAD_FAILURE)
     }
 
     /// 缩略图字节（250px 小图，够 Agent 认出画面）。
@@ -126,13 +181,25 @@ impl Client {
             return Ok(None);
         }
         let status = response.status();
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| ApiError::Upstream(format!("读 Immich 缩略图 {id} 失败：{}", error_chain(&e))))?;
+        let bytes = response.bytes().await.map_err(|e| {
+            ApiError::Upstream(format!("读 Immich 缩略图 {id} 失败：{}", error_chain(&e)))
+        })?;
         Self::check_status(status, &format!("/api/assets/{id}/thumbnail"), "")?;
         let mime = headers_mime(&bytes);
         Ok(Some((bytes.to_vec(), mime)))
+    }
+}
+
+fn search_transport_error(error: reqwest::Error) -> ApiError {
+    if error.is_timeout() {
+        ApiError::Upstream("无 HTTP 状态码，搜索请求超时，未能确认上游原因".to_owned())
+    } else if error.is_connect() {
+        ApiError::NotReady
+    } else {
+        ApiError::Upstream(format!(
+            "无 HTTP 状态码，搜索请求失败：{}",
+            error_chain(&error)
+        ))
     }
 }
 
@@ -157,29 +224,19 @@ pub struct AssetSummary {
 
 /// 只认 v3.x 的响应形状：`{"assets": {"items": [...]}}`。认不出就是 Immich 出了问题，
 /// 要如实报错，不能装作"没有找到照片"。
-fn parse_assets(value: &serde_json::Value) -> Result<Vec<AssetSummary>, ApiError> {
+fn parse_assets(value: &serde_json::Value) -> Result<Vec<AssetSummary>, String> {
     let items = value
         .pointer("/assets/items")
-        .ok_or_else(|| {
-            ApiError::Upstream(format!(
-                "Immich 搜索响应的结构认不出来（没有 assets.items）：{}",
-                truncate(&value.to_string(), 160)
-            ))
-        })?
+        .ok_or_else(|| "搜索响应缺少 assets.items".to_owned())?
         .as_array()
-        .ok_or_else(|| {
-            ApiError::Upstream(format!(
-                "Immich 搜索响应的结构认不出来（assets.items 不是数组）：{}",
-                truncate(&value.to_string(), 160)
-            ))
-        })?;
+        .ok_or_else(|| "搜索响应的 assets.items 不是数组".to_owned())?;
     items
         .iter()
         .map(|item| {
             let id = item
                 .get("id")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| ApiError::Upstream("Immich 搜索结果的资产没有 id 字段".to_owned()))?;
+                .ok_or_else(|| "搜索结果的资产没有 id 字段".to_owned())?;
             let file_name = item
                 .get("originalFileName")
                 .and_then(|v| v.as_str())
@@ -247,9 +304,13 @@ mod tests {
 
     #[test]
     fn rejects_unrecognized_shape() {
-        for value in [json!({}), json!({"assets": {}}), json!({"items": []}), json!({"assets": {"items": 3}})] {
-            let error = parse_assets(&value).expect_err("认不出的结构要报错");
-            assert!(matches!(error, ApiError::Upstream(_)));
+        for value in [
+            json!({}),
+            json!({"assets": {}}),
+            json!({"items": []}),
+            json!({"assets": {"items": 3}}),
+        ] {
+            parse_assets(&value).expect_err("认不出的结构要报错");
         }
     }
 
@@ -279,3 +340,7 @@ mod tests {
         assert_eq!(headers_mime(b"\xff\xd8\xff\xe0"), "image/jpeg");
     }
 }
+
+#[cfg(test)]
+#[path = "search_tests.rs"]
+mod search_tests;
