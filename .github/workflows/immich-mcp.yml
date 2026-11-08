@@ -1,0 +1,37 @@
+name: immich-mcp
+
+# images/immich-mcp 是 Rust，套件的检查工作流只在仓库根有 Cargo.toml 时才跑 Rust 三项，探不到这个子目录；
+# 这里对它单独跑格式、Clippy 和测试，只在它变动时跑（手动触发不筛路径）。
+on:
+  pull_request:
+    paths: ['images/immich-mcp/**']
+  push:
+    branches: [main]
+    paths: ['images/immich-mcp/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: images/immich-mcp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust 格式、Clippy 和测试
+        run: |
+          rustup component add rustfmt clippy
+          cargo fmt --check
+          if [[ ! -f clippy.toml && ! -f .clippy.toml ]]; then
+            # Clippy 通过 CLIPPY_CONF_DIR 选择配置目录，而非通过环境变量设置单个阈值。
+            # https://doc.rust-lang.org/clippy/configuration.html
+            # https://doc.rust-lang.org/clippy/lint_configuration.html#too-many-lines-threshold
+            CLIPPY_CONF_DIR="$(mktemp -d "$RUNNER_TEMP/clippy.XXXXXX")"
+            export CLIPPY_CONF_DIR
+            printf 'too-many-lines-threshold = 100\n' > "$CLIPPY_CONF_DIR/clippy.toml"
+          fi
+          cargo clippy --all-targets -- -D warnings -W clippy::too_many_lines
+          cargo test
