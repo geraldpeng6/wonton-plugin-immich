@@ -251,7 +251,7 @@ configs:
 x-wonton:
   spec: "0.4"
   id: app.immich.immich
-  version: 0.3.3
+  version: 0.3.4
   kind: app
   title: { en: Immich }
   description: { zh: "备份手机里的照片和视频，按人脸和内容搜索", en: "Back up your photos and videos, search by face and content" }
@@ -277,7 +277,7 @@ x-wonton:
       Originals go into the photos shared folder, where other apps can read them; thumbnails and transcoded videos are kept elsewhere.
 
       Bots can also find photos for you: describe the scene ("a sunset at the beach") and the bot searches the library by content, getting file names, dates and thumbnails.
-  release_notes: { zh: "升级到上游 v3.3.6：机器学习容器不再向 Microsoft 发送匿名指标。开发套件和冒烟探测更新（修探测地址的双斜杠、补 Bot 搜照片工具的探测）；数据库镜像以后不自动跨大版本升级。", en: "Upgraded to upstream v3.3.6: the machine-learning container no longer sends anonymous metrics to Microsoft. Development kit and smoke checks updated (double slashes in probe URLs fixed, checks added for the Bot photo-search tool); the database image no longer upgrades across major versions automatically." }
+  release_notes: { zh: "Bot 搜照片失败时给准原因：区分 Immich 没起来、搜索超时、识别模型没加载出来，各给对应的下一步；搜索超时不再报成协议错误。", en: "Bot photo search failures now name the actual cause — Immich not ready, search timed out, or the recognition model failed to load — each with the matching next step; search timeouts no longer surface as protocol errors." }
   webui:
     service: server
     port: 2283
