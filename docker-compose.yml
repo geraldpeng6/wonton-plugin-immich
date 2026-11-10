@@ -271,12 +271,16 @@ x-wonton:
       原图存进共享文件夹 photos，别的应用也读得到；缩略图和转码视频另存，不占共享文件夹。
 
       Bot 也能帮你找照片：问它“找海滩上的日落”这类画面描述，它按内容在照片库里搜，拿到文件名、日期和缩略图。
+
+      核心升级后，插件容器会按新的签发方自动重建，打开照常，不用重装。
     en: |
       Photos and videos are backed up from your phone to your server; browse the timeline, albums and search by face or content in the web page.
 
       Originals go into the photos shared folder, where other apps can read them; thumbnails and transcoded videos are kept elsewhere.
 
       Bots can also find photos for you: describe the scene ("a sunset at the beach") and the bot searches the library by content, getting file names, dates and thumbnails.
+
+      After a core upgrade the plugin's containers are rebuilt with the new issuer automatically; pages open as before, with nothing to reinstall.
   release_notes: { zh: "Bot 搜照片失败时给准原因：区分 Immich 没起来、搜索超时、识别模型没加载出来，各给对应的下一步；搜索超时不再报成协议错误。", en: "Bot photo search failures now name the actual cause — Immich not ready, search timed out, or the recognition model failed to load — each with the matching next step; search timeouts no longer surface as protocol errors." }
   webui:
     service: server
