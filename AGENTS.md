@@ -1,6 +1,6 @@
 # 插件仓库的规则
 
-本文件对人和 AI 编程代理（Claude Code、Codex 等）同样适用。怎么写插件、怎么用开发环境，见 [README.md](README.md)。
+本文件对人和 AI 编程代理（Claude Code、Codex 等）同样适用。通用开发流程见[开发指南](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md)，规则见[插件规范](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md)。
 
 ## 插件包
 
@@ -18,7 +18,7 @@
   - 不改上游镜像，不另发修改版。确实要自己构建的，Dockerfile 放在 `images/<名字>/`，由 `scripts/publish.sh`
     构建多架构镜像、推送并按摘要固定。
   - 新用一个镜像或依赖时写明它的许可证。清单的 `license` 写应用的许可证（SPDX），插件包自己的许可证写在 LICENSE 里。
-- README 是写插件的指南。从模板新建的插件仓库保留它，只把开头的标题和介绍换成这个插件的；给用户看的介绍写在清单的
+- README 只写这个插件的说明，通用流程和规则链接开发指南与插件规范，不在插件仓库复制；给用户看的介绍写在清单的
   `description` 和 `about` 里，商店显示的是它们。
 
 ## 运行时原则：失败即停
@@ -37,7 +37,7 @@
 
 ## 共用一台 Docker
 
-几个人或几个 Agent 可能共用一台 Docker，各自的开发环境靠实例名分开（见 README 的“开发环境”）。
+几个人或几个 Agent 可能共用一台 Docker，各自的开发环境靠实例名分开（见[开发指南的“开发环境”](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md#开发环境)）。
 
 - 开发环境的起停、安装和清理只用 `scripts/dev.sh`。
 - 不执行 `docker system prune`、`docker container prune`、`docker volume prune`、`docker network prune`、
