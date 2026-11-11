@@ -1,6 +1,6 @@
 # 云吞插件：Immich 相册
 
-开发流程见[插件开发指南](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md)。
+开发流程见[插件开发指南](https://github.com/wontonapp/wonton-docs/blob/main/develop.md)。
 
 云吞（Wonton）插件：Immich 相册，照片原件放共享文件夹 `photos`，缩略图和数据库等派生数据放插件自己的数据目录。登录走核心的
 OIDC。
