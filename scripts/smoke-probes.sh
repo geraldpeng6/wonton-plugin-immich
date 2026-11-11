@@ -146,3 +146,84 @@ data_check() { # 升级/重装后读回资产：GET /api/assets/{id}，originalF
   jq -e --arg m "$marker" '.originalFileName == $m + ".png"' <<<"$me" >/dev/null ||
     { echo "资产不见了或对不上：$(head -c 200 <<<"$me")"; return 1; }
 }
+
+# ---------- 邮件（notify）：测试信经核心内部邮箱投进主人私聊 ----------
+# Immich 管理端有同步的测试信端点（POST /api/notifications/test-email，发给请求者自己=主人的内部
+# 地址，成功回 messageId，SMTP 连不上 400），SMTP 参数用配置文件里同一套值传给端点，证明这组值
+# 真发得出信；成功投递在核心日志里静默，再以主人身份读 Matrix 私聊里的 app.wonton.plugin_mail 消息。
+# 给新用户发的欢迎信（成功路径的另一半）要第二个家庭成员才触发，冒烟里不可脚本化，不写假断言。
+immich_session() { # 走一遍 OAuth 链把应用会话放进 $SMOKE_JAR（同 identity_check 的走法，不做断言）
+  local r url final state body base
+  base="${SMOKE_WEB_URL%/}"
+  r="$(curl -sS --noproxy '*' -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Content-Type: application/json' \
+    -d "{\"redirectUri\":\"$base/auth/login\"}" "$base/api/oauth/authorize")" ||
+    { echo "authorize 失败：$r"; return 1; }
+  url="$(jq -r '.url // empty' <<<"$r")"
+  [[ -n "$url" ]] || { echo "authorize 没给 url：$r"; return 1; }
+  final="$(curl -sS --noproxy '*' -o /dev/null -L -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Accept: text/html' \
+    -w '%{url_effective}' "$url")" || { echo "OAuth 授权链失败"; return 1; }
+  state="$(python3 -c 'import sys,urllib.parse as u;print(u.parse_qs(u.urlparse(sys.argv[1]).query)["state"][0])' "$final")" ||
+    { echo "回调地址没有 state：$final"; return 1; }
+  body="$(jq -nc --arg u "$final" --arg s "$state" '{url:$u,state:$s}')"
+  r="$(curl -sS --noproxy '*' -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Content-Type: application/json' -d "$body" \
+    "$base/api/oauth/callback")" || { echo "callback 失败：$r"; return 1; }
+}
+
+extra_check() {
+  local base server cfg out mail_host mail_port mail_from mtok before_ts found json seen_room
+  base="${SMOKE_WEB_URL%/}"
+  declare -F owner_access_token >/dev/null ||
+    { echo "需要 e2e 套件的 owner_access_token（读主人私聊拿投递证据用）"; return 1; }
+  server="$(docker ps --format '{{.Names}}' | grep -E "wonton-${SMOKE_INSTANCE}--app-immich-immich--server$" | head -1)"
+  [[ -n "$server" ]] || { echo "找不到 immich server 容器"; return 1; }
+
+  # 0) 三个 SMTP 变量进了 server 容器（compose 显式透传，值快照进配置文件）
+  mail_host="$(docker exec "$server" printenv WONTON_SMTP_HOST)" || { echo "server 容器没有 WONTON_SMTP_HOST"; return 1; }
+  mail_port="$(docker exec "$server" printenv WONTON_SMTP_PORT)" || { echo "server 容器没有 WONTON_SMTP_PORT"; return 1; }
+  mail_from="$(docker exec "$server" printenv WONTON_MAIL_FROM)" || { echo "server 容器没有 WONTON_MAIL_FROM"; return 1; }
+  [[ "$mail_host" == "smtp.wonton.internal" && "$mail_port" == "25" &&
+    "$mail_from" == "app.immich.immich@plugins.wonton.internal" ]] ||
+    { echo "SMTP 变量不对：host=$mail_host port=$mail_port from=$mail_from"; return 1; }
+  echo "SMTP 变量已注入：$mail_host:$mail_port from=$mail_from"
+
+  # 0b) 配置文件里的 notifications.smtp 就是核心注入的值
+  cfg="$(docker exec "$server" cat /usr/src/app/wonton-config.json)" || { echo "读不到 immich 配置文件"; return 1; }
+  jq -e '.notifications.smtp.enabled == true and .notifications.smtp.from == $f and
+    .notifications.smtp.transport.host == "smtp.wonton.internal" and
+    .notifications.smtp.transport.port == 25 and .notifications.smtp.transport.secure == false' \
+    --arg f "$mail_from" <<<"$cfg" >/dev/null ||
+    { echo "配置文件的 SMTP 不是核心注入的值：$(head -c 300 <<<"$cfg")"; return 1; }
+  echo "配置文件 notifications.smtp = 核心注入的值"
+
+  # 1) 应用会话 + 同步测试信（发给主人账号的内部地址）
+  immich_session || return 1
+  out="$(curl -sS --noproxy '*' --fail-with-body -b "$SMOKE_JAR" -H 'Content-Type: application/json' \
+    -d "{\"enabled\":true,\"from\":\"$mail_from\",\"replyTo\":\"\",\"transport\":{\"host\":\"$mail_host\",\"port\":$mail_port,\"secure\":false,\"ignoreCert\":false,\"username\":\"\",\"password\":\"\"}}" \
+    "$base/api/notifications/test-email")" || { echo "测试信没发出去：$out"; return 1; }
+  jq -e '.messageId | length > 0' <<<"$out" >/dev/null || { echo "测试信回执没有 messageId：$out"; return 1; }
+  echo "测试信已发出（messageId 回执）"
+
+  # 2) 以主人身份读私聊，等 app.wonton.plugin_mail 消息（成功投递在核心日志里静默）
+  mtok="$(owner_access_token)" || { echo "主人 Matrix 登录失败（读私聊拿投递证据用）"; return 1; }
+  before_ts="$(date +%s000)"
+  found=""
+  for _ in $(seq 1 50); do
+    seen_room="$(matrix_curl -H "Authorization: Bearer $mtok" \
+      "http://tuwunel.wonton.internal:8008/_matrix/client/v3/joined_rooms" 2>/dev/null | jq -r '.joined_rooms[]' 2>/dev/null)" || { sleep 3; continue; }
+    while IFS= read -r room; do
+      [[ -n "$room" ]] || continue
+      json="$(matrix_curl -H "Authorization: Bearer $mtok" \
+        "http://tuwunel.wonton.internal:8008/_matrix/client/v3/rooms/$(printf '%s' "$room" | sed 's/!/%21/g;s/:/%3A/g')/messages?dir=b&limit=30" 2>/dev/null)" || continue
+      if jq -e --arg p "app.immich.immich" --argjson t "$before_ts" '.chunk[] |
+          select(.type == "m.room.message" and .origin_server_ts >= $t and
+          .content["app.wonton.plugin_mail"].plugin_id == $p)' <<<"$json" >/dev/null 2>&1; then
+        found="$room"
+        break
+      fi
+    done <<<"$seen_room"
+    [[ -n "$found" ]] && break
+    sleep 3
+  done
+  [[ -n "$found" ]] || { echo "主人的 Wonton 私聊里没有 Immich 的测试信（150 秒）"; return 1; }
+  echo "核心已把 Immich 的测试信投进主人的 Wonton 私聊（房间 $found）"
+}
