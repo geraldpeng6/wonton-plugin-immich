@@ -148,7 +148,7 @@ data_check() { # 升级/重装后读回资产：GET /api/assets/{id}，originalF
 }
 
 # ---------- 邮件（notify）：测试信经核心内部邮箱投进主人私聊 ----------
-# Immich 管理端有同步的测试信端点（POST /api/notifications/test-email，发给请求者自己=主人的内部
+# Immich 管理端有同步的测试信端点（POST /api/admin/notifications/test-email（上游 notification-admin.controller），发给请求者自己=主人的内部
 # 地址，成功回 messageId，SMTP 连不上 400），SMTP 参数用配置文件里同一套值传给端点，证明这组值
 # 真发得出信；成功投递在核心日志里静默，再以主人身份读 Matrix 私聊里的 app.wonton.plugin_mail 消息。
 # 给新用户发的欢迎信（成功路径的另一半）要第二个家庭成员才触发，冒烟里不可脚本化，不写假断言。
@@ -199,7 +199,7 @@ extra_check() {
   immich_session || return 1
   out="$(curl -sS --noproxy '*' --fail-with-body -b "$SMOKE_JAR" -H 'Content-Type: application/json' \
     -d "{\"enabled\":true,\"from\":\"$mail_from\",\"replyTo\":\"\",\"transport\":{\"host\":\"$mail_host\",\"port\":$mail_port,\"secure\":false,\"ignoreCert\":false,\"username\":\"\",\"password\":\"\"}}" \
-    "$base/api/notifications/test-email")" || { echo "测试信没发出去：$out"; return 1; }
+    "$base/api/admin/notifications/test-email")" || { echo "测试信没发出去：$out"; return 1; }
   jq -e '.messageId | length > 0' <<<"$out" >/dev/null || { echo "测试信回执没有 messageId：$out"; return 1; }
   echo "测试信已发出（messageId 回执）"
 
