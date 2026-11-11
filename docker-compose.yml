@@ -335,6 +335,8 @@ x-wonton:
       password: "{secret:admin_password}"
   permissions:
     - storage.share.photos:write
+    # MCP 工具经核心总线暴露给 Bot；规范 0.11 起只有声明 tools 权限的插件才注入 WONTON_MCP_URL。
+    - tools
     - network.egress
     - owner.identity
     - notify
