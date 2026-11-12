@@ -17,9 +17,14 @@ OIDC。
   取舍：密码登录在 Immich 里是全局开关，打开后经核心网关的网页登录仍由 OIDC 自动跳转接管，不受影响；
   不经网关直连 2283 的网页会自动跳去核心的登录页（局域网里到不了），Immich 内置了逃生参数，
   打开 `/auth/login?autoLaunch=0`（v3.3.6 源码）登录页才显示邮箱密码表单。不开开关时端口关闭，没有这条路径。
-- 设置在 compose 的 `immich-config` 里，经 `IMMICH_CONFIG_FILE` 交给 Immich：OAuth、密码登录、存储模板、邮件发送、
-  智能搜索模型五组。
+- 设置在 compose 的 `immich-config` 里，经 `IMMICH_CONFIG_FILE` 交给 Immich：OAuth、密码登录、存储模板、外部图库的扫描和监视、
+  邮件发送、智能搜索模型六组。
   上游规定存在配置文件时管理界面只读；没写进配置的设置是 Immich 的默认值，在这里也改不了。
+- 别人放进 `photos` 的照片和视频（Bot 用 `wonton__save_file` 存的、在 Samba 里拖进来的）经 Immich 的外部图库进用户的时间线：
+  Immich 只认自己上传的文件，不扫媒体目录里多出来的东西。上游不许外部图库的路径落在媒体根 `/data` 下面，所以 server
+  把同一个共享文件夹另外只读挂在 `/mnt/photos`；bootstrap 每次启动核对这个图库（没有就建，归用户），补上排除 Immich 自己
+  原图目录（`<用户>/<年>/<年-月-日>/`，存储模板决定）的规则，再扫一遍。新文件靠监视几秒内出现；上游只在服务启动时开始监视
+  已有的图库，首次安装建图库的那次启动靠每 10 分钟一次的扫描。
 - 应用发的信走云吞的内部邮箱（`notify` 权限）：新用户欢迎信、共享相册的邀请和更新转进收件人的 Wonton 私聊。
   SMTP 写死在 `immich-config` 里：核心的 SMTP 不认证不加密，Immich 不填用户名密码就不发 AUTH（上游
   email.repository.ts 的 createTransport），`from` 用核心给的 `WONTON_MAIL_FROM`。
@@ -76,7 +81,7 @@ scripts/dev.sh install
 | --- | --- |
 | `docker-compose.yml` | 插件本身：compose 加上 `x-wonton` 清单 |
 | `icon.png`、`screenshots/` | 商店图标和竖屏截图 |
-| `bootstrap/bootstrap.cjs` | 一次性服务：建管理员，每次启动按用户名核对用户身份，并核对搜索服务的 Immich API key（对不上就重建） |
+| `bootstrap/bootstrap.cjs` | 一次性服务：建管理员，每次启动按用户名核对用户身份，核对搜索服务的 Immich API key（对不上就重建）和 photos 的外部图库 |
 | `images/immich-mcp/` | 只读搜索服务的源码和 Dockerfile：一个 `search_photos` 工具，经核心的 MCP 总线给 Bot 用 |
 | `scripts/check.sh` | 检查插件包，规则和安装时一样 |
 | `scripts/dev.sh` | 开发环境：起一套云吞，装、重装、卸载插件，看日志 |

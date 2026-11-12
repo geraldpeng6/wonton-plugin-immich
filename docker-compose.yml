@@ -44,6 +44,11 @@ services:
       - ${WONTON_APP_DATA}/media:/data
       # 只申请了写共享文件夹 photos（storage.share.photos:write）。共享文件夹只能整个挂载。
       - ${WONTON_SHARE_PHOTOS}:/data/library
+      # 同一个共享文件夹再只读挂一次，给外部图库用：别人放进 photos 的照片（Bot 用 wonton__save_file 存的、
+      # 在 Samba 里拖进来的）Immich 不会自己收录，要外部图库扫进来。上游不许外部图库的路径落在媒体根 /data 下面
+      # （library.service validateImportPath 的 isImmichPath），所以挂在 /data 之外。Immich 自己的原图在
+      # <用户>/<年>/<年-月-日>/ 下，由 bootstrap 写的排除规则挡掉，不会再收一遍。
+      - ${WONTON_SHARE_PHOTOS}:/mnt/photos:ro
     configs:
       # OAuth 设置：内容里的 ${WONTON_OIDC_*} 在安装时插值。文件不在挂载点里。
       - source: immich-config
@@ -90,6 +95,7 @@ services:
     restart: "no"
 
   # 一次性服务：空库时建管理员；每次启动按用户名找到它、刷邮箱并补齐 onboard 标记（安装、升级、重建都会跑）。
+  # 每次启动核对 photos 的外部图库（归这个用户，路径 /mnt/photos，带排除规则），并扫一遍，补上停机时放进来的照片。
   # 每次启动都核对 Bot 搜索服务的 Immich API key（文件和库里的行一致就跳过，否则重建，见 mcp 服务）。
   # 每次启动补排“缺失”识别任务；智能搜索的模型变了（和 state/clip-rebuilt 标记比对）时改为排一次
   # 全量重建（SmartSearchQueueAll force:true），记下模型名，重启不重复全量跑。
@@ -222,7 +228,7 @@ configs:
   bootstrap:
     file: bootstrap/bootstrap.cjs
   immich-config:
-    # 只写 oauth、notifications 的 SMTP、机器学习三节：设置文件里没写的键沿用默认值。
+    # 只写下面这几节：设置文件里没写的键沿用默认值。
     # notifications.smtp：应用发的信（新用户欢迎、共享相册邀请和更新）经核心的 SMTP 转进收件人的 Wonton
     # 私聊。核心的 SMTP 不认证不加密：`secure` 保持默认 false，`username`/`password` 留默认空值——Immich
     # 只在两者非空时才发 AUTH（上游 email.repository.ts 的 createTransport）；核心不宣告 STARTTLS，不会
@@ -232,6 +238,9 @@ configs:
     # 不依赖查询语言设置——Bot 的 search_photos 不传 language，nllb 系要靠它加语言前缀才能搜准中文）。
     # 换模型后旧索引作废，bootstrap 会在模型变化时排一次全量重建（见 bootstrap.cjs）。
     # passwordLogin 打开是给局域网 App 的登录路径（lan.client 的账号就是它）；经网关的网页登录仍走 OIDC。
+    # library：photos 的外部图库（见 server 的 /mnt/photos 挂载）。watch 让新放进来的照片几秒内出现；上游只在
+    # 服务启动时开始监视已有的图库（v3.3.6 library.service 的 onConfigInit），bootstrap 首次建好图库的那次启动
+    # 不监视，所以扫描每 10 分钟补一次。扫描跳过排除掉的 Immich 自己的目录，只走别人放进来的文件。
     # allowInsecureRequests 必须为 true：核心网关不做 TLS，签发方（auth.<基础域名>）和插件网页一样是 http，
     # openid-client 默认只收 https；换成 https 的部署时这项没有副作用。
     content: |
@@ -254,6 +263,15 @@ configs:
         "storageTemplate": {
           "enabled": true,
           "template": "{{y}}/{{y}}-{{MM}}-{{dd}}/{{filename}}"
+        },
+        "library": {
+          "scan": {
+            "enabled": true,
+            "cronExpression": "*/10 * * * *"
+          },
+          "watch": {
+            "enabled": true
+          }
         },
         "machineLearning": {
           "clip": {
@@ -293,7 +311,7 @@ x-wonton:
     zh: |
       照片和视频从手机备份到家里的主机，时间线、相册和人脸、内容搜索都在网页里。
 
-      原图存进共享文件夹 photos，别的应用也读得到；缩略图和转码视频另存，不占共享文件夹。
+      原图存进共享文件夹 photos，别的应用也读得到；缩略图和转码视频另存，不占共享文件夹。别人放进 photos 的照片和视频（让 Bot 存的、在电脑上拖进去的）也会出现在你的时间线里。
 
       Bot 也能帮你找照片：问它“找海滩上的日落”这类画面描述，它按内容在照片库里搜，拿到文件名、日期和缩略图。
 
@@ -303,7 +321,7 @@ x-wonton:
     en: |
       Photos and videos are backed up from your phone to your server; browse the timeline, albums and search by face or content in the web page.
 
-      Originals go into the photos shared folder, where other apps can read them; thumbnails and transcoded videos are kept elsewhere.
+      Originals go into the photos shared folder, where other apps can read them; thumbnails and transcoded videos are kept elsewhere. Photos and videos put into photos some other way (saved by a bot, dragged in from a computer) also show up in your timeline.
 
       Bots can also find photos for you: describe the scene ("a sunset at the beach") and the bot searches the library by content, getting file names, dates and thumbnails.
 
