@@ -278,8 +278,8 @@ x-wonton:
   id: app.immich.immich
   version: 0.3.5
   kind: app
-  title: { en: Immich }
-  description: { zh: "备份手机里的照片和视频，按人脸和内容搜索", en: "Back up your photos and videos, search by face and content" }
+  title: { zh: 手机相册备份（Immich）, en: Phone Photo Backup (Immich) }
+  description: { zh: "像 Google 相册：手机里的照片和视频备份到家里，能按人脸、地点和画面内容搜，还能建共享相册给家人看。照片类里最全面，适合要从手机备份照片的人。", en: "Like Google Photos: back up your phone's photos and videos to your home server, search by face, place or what's in the picture, and share albums with family. The most complete photo app, best if you want phone backups." }
   icon: icon.png
   notices: [NOTICE]
   screenshots: [screenshots/timeline.jpg, screenshots/viewer.jpg, screenshots/search.jpg]
