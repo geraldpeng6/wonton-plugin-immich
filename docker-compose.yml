@@ -294,7 +294,7 @@ configs:
 x-wonton:
   spec: "0.11"
   id: app.immich.immich
-  version: 0.3.5
+  version: 0.3.6
   kind: app
   title: { zh: 手机相册备份（Immich）, en: Phone Photo Backup (Immich) }
   description: { zh: "像 Google 相册：手机里的照片和视频备份到家里，能按人脸、地点和画面内容搜，还能建共享相册给家人看。照片类里最全面，适合要从手机备份照片的人。", en: "Like Google Photos: back up your phone's photos and videos to your home server, search by face, place or what's in the picture, and share albums with family. The most complete photo app, best if you want phone backups." }
@@ -328,7 +328,7 @@ x-wonton:
       After a core upgrade the plugin's containers are rebuilt with the new issuer automatically; pages open as before, with nothing to reinstall.
 
       Emails the app sends (welcome mail for new users, shared-album invites and updates) arrive in the recipient's Wonton chat; only household members can receive them — creating a user with an outside address fails to send its welcome mail.
-  release_notes: { zh: "应用发的信接进云吞：新用户欢迎信、共享相册的邀请和更新转进收件人的 Wonton 私聊；收件人是外部地址时发不出去，Immich 会报发送失败。", en: "Emails the app sends now arrive in Wonton: welcome mail for new users and shared-album invites and updates land in the recipient's Wonton chat; mail to outside addresses fails to send, and Immich reports the failure." }
+  release_notes: { zh: "别人放进共享文件夹 photos 的照片和视频会自动进你的时间线：让 Bot 存的、在电脑上拖进去的都会被收进来，隔一会儿自己扫一遍，应用重启后也会补扫；应用发的信接进云吞：新用户欢迎信、共享相册的邀请和更新转进收件人的 Wonton 私聊；收件人是外部地址时发不出去，Immich 会报发送失败。", en: "Photos and videos others put into the photos shared folder now show up in your timeline automatically: files saved by a bot or dragged in from a computer get scanned in every few minutes, with a catch-up scan after a restart. Emails the app sends now arrive in Wonton: welcome mail for new users and shared-album invites and updates land in the recipient's Wonton chat; mail to outside addresses fails to send, and Immich reports the failure." }
   webui:
     service: server
     port: 2283
