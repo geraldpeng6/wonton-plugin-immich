@@ -18,7 +18,7 @@
 services:
   server:
     # 上游官方镜像，按 v3.3.6 官方 compose 的版本组合固定（license: AGPL-3.0-only）。
-    image: ghcr.io/immich-app/immich-server:v3.3.6@sha256:e1981983b1c13f6024b57d72e7ecae3342eed1581201ab09fb248932d86c593a
+    image: ghcr.io/immich-app/immich-server:v3.4.1@sha256:7c489add298fc2f92cda4c777de6462aa206877e04087b815f62c7664af0b53b
     # 以用户身份运行：共享文件夹里写下的文件归用户，数据目录也按 PUID:PGID 交给它。
     user: "${PUID}:${PGID}"
     environment:
@@ -73,7 +73,7 @@ services:
   # 一次性服务：Immich 要求每个媒体子目录里有 .immich 标记才能启动，数据目录里的挂载是空的，先补齐。
   # 必须在 server 启动前跑完，所以 server 依赖它；它自己不需要网络。
   prepare:
-    image: ghcr.io/immich-app/immich-server:v3.3.6@sha256:e1981983b1c13f6024b57d72e7ecae3342eed1581201ab09fb248932d86c593a
+    image: ghcr.io/immich-app/immich-server:v3.4.1@sha256:7c489add298fc2f92cda4c777de6462aa206877e04087b815f62c7664af0b53b
     entrypoint:
       - /bin/sh
       - -ec
@@ -100,7 +100,7 @@ services:
   # 每次启动补排“缺失”识别任务；智能搜索的模型变了（和 state/clip-rebuilt 标记比对）时改为排一次
   # 全量重建（SmartSearchQueueAll force:true），记下模型名，重启不重复全量跑。
   bootstrap:
-    image: ghcr.io/immich-app/immich-server:v3.3.6@sha256:e1981983b1c13f6024b57d72e7ecae3342eed1581201ab09fb248932d86c593a
+    image: ghcr.io/immich-app/immich-server:v3.4.1@sha256:7c489add298fc2f92cda4c777de6462aa206877e04087b815f62c7664af0b53b
     # 不碰文件，按用户身份跑。
     user: "${PUID}:${PGID}"
     entrypoint: ["node", "/usr/src/app/bootstrap.cjs"]
