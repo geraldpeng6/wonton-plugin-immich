@@ -1,4 +1,4 @@
-// 一次性安装服务：建用户账号，每次启动按核心注入的用户名（OIDC 的 sub）核对它。
+// 一次性安装服务：建用户账号，每次启动按核心注入的用户名（OIDC 的 sub）核对它，并核对 photos 的外部图库。
 // 用户名装上以后不变；邮箱按注入值同步，显示名由 Immich 管理。密码登录关闭后拿不到会话，
 // onboard 标记直写 Immich 自己的 user_metadata；已经写过就跳过，不依赖管理员密码。
 //
@@ -82,6 +82,61 @@ async function ensureApiKey(db, userId) {
   fs.rmSync(keyFile, { force: true });
   fs.writeFileSync(keyFile, `${token}\n`, { mode: 0o400 });
   console.log(`已为 Bot 的搜索服务重建 Immich API key（${keyName}，权限 ${keyPermissions.join(' ')}）`);
+}
+
+// photos 的外部图库：server 把共享文件夹另外只读挂在这里（见 compose），别人放进来的照片靠它进时间线。
+const photosPath = '/mnt/photos';
+// Immich 自己的原图在 <存储标签或用户 id>/<年>/<年-月-日>/ 下（v3.3.6 StorageCore.getLibraryFolder 加 compose 里固定的
+// storageTemplate）。不排除的话每张多收一份，家人的照片还会进外部图库主人的时间线。改模板要一起改这条。
+const ownOriginals = `${photosPath}/*/[0-9][0-9][0-9][0-9]/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/**`;
+// 建图库、扫描用的临时 key：只在这次启动里用，用完就删（崩溃留下的旧行下次启动先删掉）。
+const libraryKeyName = 'wonton-bootstrap-library';
+const libraryPermissions = ['library.create', 'library.read', 'library.update'];
+
+// 图库的接口只给管理员（library.controller 的 admin: true），按建 key 的同一套做法给这个用户一把临时 key。
+async function withLibraryKey(db, userId, use) {
+  await db.query(`DELETE FROM api_key WHERE name = $1 AND "userId" = $2`, [libraryKeyName, userId]);
+  const token = crypto.randomBytes(32).toString('base64').replaceAll(/\W/g, '');
+  const hashed = crypto.createHash('sha256').update(token).digest();
+  await db.query(
+    `INSERT INTO api_key (name, key, "userId", permissions, "updateId") VALUES ($1, $2, $3, $4, $5)`,
+    [libraryKeyName, hashed, userId, libraryPermissions, crypto.randomUUID()],
+  );
+  try {
+    return await use(async (method, route, body) => {
+      const response = await fetch(`${base}${route}`, {
+        method,
+        headers: { 'x-api-key': token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!response.ok) {
+        throw new Error(`${method} ${route} 失败：${response.status} ${await response.text()}`);
+      }
+      return response.status === 204 ? null : response.json();
+    });
+  } finally {
+    await db.query(`DELETE FROM api_key WHERE name = $1 AND "userId" = $2`, [libraryKeyName, userId]);
+  }
+}
+
+// 没有就建（归这个用户，排除规则用上游默认的再加 ownOriginals），有就补上排除规则，最后扫一遍：
+// 上游建图库时不扫，停机时放进来的照片也只有扫描才收得进来。用户在 Immich 里加的排除规则不动。
+async function ensurePhotosLibrary(db, userId) {
+  await withLibraryKey(db, userId, async (api) => {
+    const libraries = await api('GET', '/api/libraries');
+    let library = libraries.find((item) => item.importPaths.includes(photosPath));
+    if (!library) {
+      library = await api('POST', '/api/libraries', { ownerId: userId, name: 'photos', importPaths: [photosPath] });
+      console.log(`已为共享文件夹 photos 建外部图库（id=${library.id}）`);
+    }
+    if (!library.exclusionPatterns.includes(ownOriginals)) {
+      await api('PUT', `/api/libraries/${library.id}`, {
+        exclusionPatterns: [...library.exclusionPatterns, ownOriginals],
+      });
+    }
+    await api('POST', `/api/libraries/${library.id}/scan`);
+    console.log(`已排入 photos 外部图库的扫描（id=${library.id}）`);
+  });
 }
 
 // 邮箱可以被别的账号占用（用户名不能），停下让用户看到原因。
@@ -214,6 +269,7 @@ async function main() {
     }
     await reconcile(db, userId);
     await ensureApiKey(db, userId);
+    await ensurePhotosLibrary(db, userId);
     console.log(`用户账号已按用户名核对（id=${userId}）`);
   } finally {
     await db.end();
