@@ -254,7 +254,8 @@ configs:
           "allowInsecureRequests": true,
           "tokenEndpointAuthMethod": "client_secret_post",
           "autoLaunch": true,
-          "autoRegister": false,
+          "autoRegister": true,
+          "roleClaim": "immich_role",
           "buttonText": "Wonton"
         },
         "passwordLogin": {
@@ -292,9 +293,9 @@ configs:
       }
 
 x-wonton:
-  spec: "0.11"
+  spec: "0.13"
   id: app.immich.immich
-  version: 0.3.6
+  version: 0.3.7
   kind: app
   title: { zh: 手机相册备份（Immich）, en: Phone Photo Backup (Immich) }
   description: { zh: "像 Google 相册：手机里的照片和视频备份到家里，能按人脸、地点和画面内容搜，还能建共享相册给家人看。照片类里最全面，适合要从手机备份照片的人。", en: "Like Google Photos: back up your phone's photos and videos to your home server, search by face, place or what's in the picture, and share albums with family. The most complete photo app, best if you want phone backups." }
@@ -328,14 +329,16 @@ x-wonton:
       After a core upgrade the plugin's containers are rebuilt with the new issuer automatically; pages open as before, with nothing to reinstall.
 
       Emails the app sends (welcome mail for new users, shared-album invites and updates) arrive in the recipient's Wonton chat; only household members can receive them — creating a user with an outside address fails to send its welcome mail.
-  release_notes: { zh: "别人放进共享文件夹 photos 的照片和视频会自动进你的时间线：让 Bot 存的、在电脑上拖进去的都会被收进来，隔一会儿自己扫一遍，应用重启后也会补扫；应用发的信接进云吞：新用户欢迎信、共享相册的邀请和更新转进收件人的 Wonton 私聊；收件人是外部地址时发不出去，Immich 会报发送失败。", en: "Photos and videos others put into the photos shared folder now show up in your timeline automatically: files saved by a bot or dragged in from a computer get scanned in every few minutes, with a catch-up scan after a restart. Emails the app sends now arrive in Wonton: welcome mail for new users and shared-album invites and updates land in the recipient's Wonton chat; mail to outside addresses fails to send, and Immich reports the failure." }
+  release_notes: { zh: "家人第一次打开本应用时自动建好自己的账号，不用手工注册；勾了这个应用管理员的人建成 Immich 管理员，其余人是普通用户，每次登录按当前身份同步。升级前先把以前手工建过的账号邮箱改成内部地址，否则第一次 OIDC 登录会另建一个账号。", en: "Family members get their own account automatically the first time they open this app, with no manual registration; those ticked as this app's admin become Immich admins and everyone else is a normal user, synced on each login. Before upgrading, change the email of any manually created account to its internal address, or the first OIDC login creates a second account." }
   webui:
     service: server
     port: 2283
     sso: oidc
+    accounts: per_user
     oidc:
       redirect_paths: [/auth/login, /user-settings]
       token_endpoint_auth_method: client_secret_post
+      role_claim: {name: immich_role, admin: admin, user: user}
   mcp:
     service: mcp
     port: 8080
