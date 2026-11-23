@@ -36,6 +36,8 @@ services:
       WONTON_SMTP_HOST: ${WONTON_SMTP_HOST:?核心没有注入 SMTP 服务器地址}
       WONTON_SMTP_PORT: ${WONTON_SMTP_PORT:?核心没有注入 SMTP 端口}
       WONTON_MAIL_FROM: ${WONTON_MAIL_FROM:?核心没有注入发件地址}
+      # 客户端入口的专用密码脚本按用户名认人，用户名装好后不变。
+      WONTON_OWNER_NAME: ${WONTON_OWNER_NAME:?核心没有注入用户名字}
       # 媒体根放在插件数据目录（upload/thumbs/encoded-video/profile/backups 都跟着它），只把 library 换成共享文件夹。
       IMMICH_MEDIA_LOCATION: /data
       TZ: ${TZ}
@@ -53,6 +55,9 @@ services:
       # OAuth 设置：内容里的 ${WONTON_OIDC_*} 在安装时插值。文件不在挂载点里。
       - source: immich-config
         target: /usr/src/app/wonton-config.json
+      # 客户端入口的专用密码（ADR-0021）：在 Immich 库里读写密码哈希。
+      - source: clients-password
+        target: /wonton/password.cjs
     depends_on:
       database:
         condition: service_healthy
@@ -227,6 +232,8 @@ services:
 configs:
   bootstrap:
     file: bootstrap/bootstrap.cjs
+  clients-password:
+    file: clients/password.cjs
   immich-config:
     # 只写下面这几节：设置文件里没写的键沿用默认值。
     # notifications.smtp：应用发的信（新用户欢迎、共享相册邀请和更新）经核心的 SMTP 转进收件人的 Wonton
@@ -293,7 +300,7 @@ configs:
       }
 
 x-wonton:
-  spec: "0.13"
+  spec: "0.15"
   id: app.immich.immich
   version: 0.3.7
   kind: app
@@ -316,6 +323,8 @@ x-wonton:
 
       Bot 也能帮你找照片：问它“找海滩上的日落”这类画面描述，它按内容在照片库里搜，拿到文件名、日期和缩略图。
 
+      手机上的 Immich App 在家在外都能连：在详情页打开入口，用那里显示的地址、邮箱和专用密码登录，照片照常备份。
+
       核心升级后，插件容器会按新的签发方自动重建，打开照常，不用重装。
 
       应用发的信（新用户欢迎、共享相册的邀请和更新）会出现在收件人的 Wonton 私聊里；收件人只能是家里人，给外部邮箱建用户发欢迎信会失败。
@@ -325,6 +334,8 @@ x-wonton:
       Originals go into the photos shared folder, where other apps can read them; thumbnails and transcoded videos are kept elsewhere. Photos and videos put into photos some other way (saved by a bot, dragged in from a computer) also show up in your timeline.
 
       Bots can also find photos for you: describe the scene ("a sunset at the beach") and the bot searches the library by content, getting file names, dates and thumbnails.
+
+      The Immich phone app connects from home or away: open the entry on the plugin page and log in with the address, email and dedicated password shown there; backups work as usual.
 
       After a core upgrade the plugin's containers are rebuilt with the new issuer automatically; pages open as before, with nothing to reinstall.
 
@@ -354,6 +365,25 @@ x-wonton:
       address: "http://{host}:2283"
       username: "{email}"
       password: "{secret:admin_password}"
+  # 第三方 App 入口（ADR-0021）：入口容器按子域名把请求转给 2283，局域网和公网各一个开关，默认都关。
+  # 应用用自己的账号密码登录，密码由核心生成、在 App 的入口页显示；Immich 每个用户只有一个密码，
+  # 所以 per_client: false，换值时结束已有登录。管理员由 bootstrap 建，公网入口挡掉 admin-sign-up。
+  clients:
+    http:
+      service: server
+      port: 2283
+      auth:
+        credentials:
+          issue: [node, /wonton/password.cjs, set, "{name}"]
+          verify: [node, /wonton/password.cjs, check, "{name}"]
+          rotate: [node, /wonton/password.cjs, rotate, "{name}"]
+          ends_sessions: true
+          username: "{email}"
+          per_client: false
+      public:
+        deny: [/api/auth/admin-sign-up]
+      auth_failures:
+        - { path: /api/auth/login, status: [401] }
   permissions:
     - storage.share.photos:write
     # MCP 工具经核心总线暴露给 Bot；规范 0.11 起只有声明 tools 权限的插件才注入 WONTON_MCP_URL。
@@ -362,6 +392,8 @@ x-wonton:
     - owner.identity
     - notify
     - network.lan
+    # 第三方 App 的入口开关；装好不生效，主人按应用打开才生效。
+    - network.clients
   secrets:
     db_username:
       generate: { bytes: 8 }
